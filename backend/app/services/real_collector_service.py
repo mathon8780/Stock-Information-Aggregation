@@ -3,7 +3,7 @@ from __future__ import annotations
 import importlib
 import math
 import time
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, time as wall_time, timedelta, timezone
 from typing import Any, Callable, Iterable
 
 from sqlalchemy import select
@@ -14,7 +14,7 @@ from app.config import settings
 from app.database import Base, engine, init_db
 from app.models import Stock, Watchlist
 from app.services.analysis_service import analyze_watchlist
-from app.services.ingest_service import ingest_kline_payload, ingest_market_payload, record_collection_job
+from app.services.ingest_service import ingest_intraday_kline_payload, ingest_kline_payload, ingest_market_payload, record_collection_job
 
 
 DEFAULT_WATCHLIST = [
@@ -138,6 +138,53 @@ class AkshareCollector:
             "failed_items": failed_items,
         }
         summary = ingest_kline_payload(db, payload)
+        summary["failed_items"] = failed_items
+        return summary
+
+    def collect_intraday(self, db: Session, trading_days: int = 10, period_minutes: int = 5) -> dict[str, Any]:
+        if period_minutes not in {1, 5, 15, 30, 60}:
+            raise ValueError("period_minutes must be one of 1, 5, 15, 30, 60")
+        ensure_default_watchlist(db)
+        calendar_days = max(trading_days * 3, 20)
+        end_dt = datetime.combine(date.today(), wall_time(15, 0))
+        start_dt = datetime.combine(date.today() - timedelta(days=calendar_days), wall_time(9, 30))
+        items: list[dict[str, Any]] = []
+        failed_items: list[dict[str, Any]] = []
+
+        for idx, target in enumerate(DEFAULT_WATCHLIST):
+            if idx:
+                self.sleep(self.request_interval_seconds)
+            try:
+                rows = self._call_with_backoff(
+                    lambda t=target: self._intraday_rows_for_target(t, start_dt, end_dt, trading_days, period_minutes),
+                    target["code"],
+                )
+                items.extend(rows)
+            except Exception as exc:
+                failed_items.append({"code": target["code"], "name": target["name"], "error": str(exc)})
+
+        if not items:
+            record_collection_job(
+                db,
+                "intraday_kline",
+                "akshare",
+                "failed",
+                {"inserted": 0, "updated": 0, "failed": len(failed_items)},
+                {"trading_days": trading_days, "period_minutes": period_minutes, "targets": [item["code"] for item in DEFAULT_WATCHLIST]},
+                "; ".join(item["error"] for item in failed_items[:3]),
+            )
+            db.commit()
+            return {"inserted": 0, "updated": 0, "failed": len(failed_items), "failed_items": failed_items}
+
+        payload = {
+            "job_type": "intraday_kline",
+            "source": "akshare",
+            "fetched_at": datetime.now(timezone.utc).isoformat(),
+            "period_minutes": period_minutes,
+            "items": items,
+            "failed_items": failed_items,
+        }
+        summary = ingest_intraday_kline_payload(db, payload)
         summary["failed_items"] = failed_items
         return summary
 
@@ -341,6 +388,70 @@ class AkshareCollector:
                 errors.append(f"{function_name}: {exc}")
         raise RuntimeError("; ".join(errors) or "AKShare index history interface is unavailable")
 
+    def _intraday_rows_for_target(
+        self,
+        target: dict[str, str],
+        start_dt: datetime,
+        end_dt: datetime,
+        trading_days: int,
+        period_minutes: int,
+    ) -> list[dict[str, Any]]:
+        symbol = target["code"].split(".")[0]
+        df = self._intraday_frame(symbol, start_dt, end_dt, period_minutes)
+        raw_rows: list[tuple[datetime, dict[str, Any]]] = []
+        for row in _records(df):
+            bar_time = _as_datetime(_value(row, "时间", "day", "time", "datetime"))
+            if bar_time is None:
+                continue
+            if bar_time < start_dt or bar_time > end_dt:
+                continue
+            raw_rows.append((bar_time, row))
+        raw_rows.sort(key=lambda item: item[0])
+        keep_dates = set(sorted({bar_time.date() for bar_time, _ in raw_rows})[-trading_days:])
+        rows = [
+            {
+                **target,
+                "bar_time": bar_time.isoformat(timespec="seconds"),
+                "period_minutes": period_minutes,
+                "open": _float(row, "开盘", "open"),
+                "high": _float(row, "最高", "high"),
+                "low": _float(row, "最低", "low"),
+                "close": _float(row, "收盘", "close"),
+                "volume": _int(row, "成交量", "volume"),
+                "amount": _float(row, "成交额", "amount"),
+                "amplitude": _float(row, "振幅", "amplitude"),
+                "change_pct": _float(row, "涨跌幅", "change_pct"),
+                "change_amount": _float(row, "涨跌额", "change_amount"),
+                "turnover_rate": _turnover_rate(row),
+            }
+            for bar_time, row in raw_rows
+            if bar_time.date() in keep_dates
+        ]
+        if not rows:
+            raise RuntimeError("no intraday rows returned")
+        return rows
+
+    def _intraday_frame(self, symbol: str, start_dt: datetime, end_dt: datetime, period_minutes: int) -> Any:
+        errors: list[str] = []
+        if hasattr(self.ak, "stock_zh_a_hist_min_em"):
+            try:
+                return self.ak.stock_zh_a_hist_min_em(
+                    symbol=symbol,
+                    start_date=start_dt.strftime("%Y-%m-%d %H:%M:%S"),
+                    end_date=end_dt.strftime("%Y-%m-%d %H:%M:%S"),
+                    period=str(period_minutes),
+                    adjust="",
+                )
+            except Exception as exc:
+                errors.append(f"stock_zh_a_hist_min_em: {exc}")
+        if hasattr(self.ak, "stock_zh_a_minute"):
+            market_symbol = f"{'sh' if symbol.startswith(('600', '601', '603', '605', '688', '689')) else 'sz'}{symbol}"
+            try:
+                return self.ak.stock_zh_a_minute(symbol=market_symbol, period=str(period_minutes), adjust="")
+            except Exception as exc:
+                errors.append(f"stock_zh_a_minute: {exc}")
+        raise RuntimeError("; ".join(errors) or "AKShare intraday interface is unavailable")
+
     def _call_with_backoff(self, func: Callable[[], list[dict[str, Any]]], label: str) -> list[dict[str, Any]]:
         last_error: Exception | None = None
         for attempt in range(len(self.backoff_seconds) + 1):
@@ -437,6 +548,23 @@ def _as_date(value: Any) -> date | None:
     text = str(value)[:10]
     try:
         return date.fromisoformat(text)
+    except ValueError:
+        return None
+
+
+def _as_datetime(value: Any) -> datetime | None:
+    if value in (None, ""):
+        return None
+    if isinstance(value, datetime):
+        return value.replace(tzinfo=None)
+    text = str(value).replace("T", " ")[:19]
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"):
+        try:
+            return datetime.strptime(text, fmt)
+        except ValueError:
+            continue
+    try:
+        return datetime.fromisoformat(str(value)).replace(tzinfo=None)
     except ValueError:
         return None
 

@@ -10,13 +10,13 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.database import get_db
-from app.models import CollectionJob, KlineDaily, MarketSnapshot, News, Notification, Stock, TradingAdvice, WatchSnapshot, Watchlist
+from app.models import CollectionJob, KlineDaily, KlineIntraday, MarketSnapshot, News, Notification, Stock, TradingAdvice, WatchSnapshot, Watchlist
 from app.schemas import AddWatchRequest, NotificationResultRequest, UpdateWatchRequest
 from app.services.analysis_service import DISCLAIMER, analyze_stock, analyze_watchlist
 from app.services.ingest_service import ingest_kline_payload, ingest_market_payload, ingest_news_payload, normalize_code
 from app.services.notification_service import update_notification_result
 from app.services.real_collector_service import AkshareCollector, DEFAULT_WATCHLIST
-from app.services.serializers import advice_dict, job_dict, kline_dict, news_dict, notification_dict, snapshot_dict, stock_dict, watchlist_dict
+from app.services.serializers import advice_dict, intraday_kline_dict, job_dict, kline_dict, news_dict, notification_dict, snapshot_dict, stock_dict, watchlist_dict
 
 
 router = APIRouter(prefix="/api/v1")
@@ -68,6 +68,28 @@ def get_kline(code: str, limit: int = Query(90, ge=1, le=500), db: Session = Dep
     stock = _get_stock_or_404(db, code)
     rows = list(reversed(db.execute(select(KlineDaily).where(KlineDaily.stock_id == stock.id).order_by(desc(KlineDaily.trade_date)).limit(limit)).scalars().all()))
     return {"stock": stock_dict(stock), "items": [kline_dict(row) for row in rows], "total": len(rows)}
+
+
+@router.get("/stocks/{code}/intraday")
+def get_intraday_kline(code: str, period: int = Query(5, ge=1, le=60), days: int = Query(10, ge=1, le=30), db: Session = Depends(get_db)) -> dict[str, Any]:
+    stock = _get_stock_or_404(db, code)
+    rows_desc = db.execute(
+        select(KlineIntraday)
+        .where(KlineIntraday.stock_id == stock.id, KlineIntraday.period_minutes == period)
+        .order_by(desc(KlineIntraday.bar_time))
+        .limit(days * 120)
+    ).scalars().all()
+    keep_dates: list[Any] = []
+    for row in rows_desc:
+        trade_date = row.bar_time.date()
+        if trade_date not in keep_dates:
+            keep_dates.append(trade_date)
+        if len(keep_dates) >= days:
+            break
+    keep = set(keep_dates)
+    rows = [row for row in rows_desc if row.bar_time.date() in keep]
+    rows.sort(key=lambda row: row.bar_time)
+    return {"stock": stock_dict(stock), "period_minutes": period, "days": days, "items": [intraday_kline_dict(row) for row in rows], "total": len(rows)}
 
 
 @router.get("/stocks/{code}/snapshot")
@@ -261,6 +283,14 @@ def collect_real_market(db: Session = Depends(get_db)) -> dict[str, Any]:
 @router.post("/collector/real/history")
 def collect_real_history(db: Session = Depends(get_db)) -> dict[str, Any]:
     return AkshareCollector().collect_history(db)
+
+
+@router.post("/collector/real/intraday")
+def collect_real_intraday(trading_days: int = Query(10, ge=1, le=30), period: int = Query(5, ge=1, le=60), db: Session = Depends(get_db)) -> dict[str, Any]:
+    try:
+        return AkshareCollector().collect_intraday(db, trading_days=trading_days, period_minutes=period)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get("/collection-jobs")

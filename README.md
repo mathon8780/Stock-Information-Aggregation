@@ -4,7 +4,7 @@
 
 ## 功能范围
 
-- 行情：AKShare 全市场快照、自选股快照、历史日 K、主要指数。
+- 行情：AKShare 全市场快照、自选股快照、历史日 K、主要指数、自选股最近 10 个交易日 5 分钟 K。
 - 自选股：CPO + AI 算力五只，默认 `300308.SZ`、`300502.SZ`、`300394.SZ`、`601138.SH`、`000977.SZ`。
 - 资讯：本轮暂不处理新闻采集，页面不再展示演示新闻。
 - 策略：MA、MACD、RSI、BOLL、KDJ、量能、区间位置和新闻聚合的本地规则引擎。
@@ -28,6 +28,7 @@ python -m venv .venv
 
 ```powershell
 Invoke-RestMethod -Method Post http://127.0.0.1:8000/api/v1/collector/real/bootstrap
+Invoke-RestMethod -Method Post http://127.0.0.1:8000/api/v1/collector/real/intraday
 ```
 
 前端：

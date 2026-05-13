@@ -39,11 +39,36 @@ class FakeAkshare:
     def index_zh_a_hist(self, symbol: str, period: str, start_date: str, end_date: str):
         return history_frame()
 
+    def stock_zh_a_hist_min_em(self, symbol: str, start_date: str, end_date: str, period: str, adjust: str):
+        return intraday_frame(symbol)
+
 
 def history_frame():
     rows = []
     for day in range(1, 31):
         rows.append({"日期": f"2026-04-{day:02d}", "开盘": 10 + day, "收盘": 10.2 + day, "最高": 10.5 + day, "最低": 9.8 + day, "成交量": 1000 + day, "成交额": 20000 + day, "振幅": 2.0, "涨跌幅": 1.0, "换手率": 0.8})
+    return pd.DataFrame(rows)
+
+
+def intraday_frame(symbol: str):
+    rows = []
+    for day in range(1, 13):
+        for bar in ("09:35:00", "09:40:00"):
+            rows.append(
+                {
+                    "时间": f"2026-05-{day:02d} {bar}",
+                    "开盘": 100 + day,
+                    "收盘": 100.5 + day,
+                    "最高": 101 + day,
+                    "最低": 99.5 + day,
+                    "成交量": 5000 + day,
+                    "成交额": 600000 + day,
+                    "振幅": 1.2,
+                    "涨跌幅": 0.5,
+                    "涨跌额": 0.4,
+                    "换手率": 0.2,
+                }
+            )
     return pd.DataFrame(rows)
 
 
@@ -70,3 +95,21 @@ def test_trigger_analysis_for_real_watch_stock(monkeypatch):
         response = client.post("/api/v1/analysis/300308.SZ")
         assert response.status_code == 200
         assert response.json()["signal"] in {"重点关注", "谨慎买入", "持有", "减仓", "回避"}
+
+
+def test_collect_and_query_watchlist_intraday_5m(monkeypatch):
+    monkeypatch.setattr(api_router, "AkshareCollector", lambda: AkshareCollector(FakeAkshare(), sleep_fn=lambda _: None))
+    with TestClient(app) as client:
+        client.post("/api/v1/collector/real/bootstrap")
+        response = client.post("/api/v1/collector/real/intraday")
+        assert response.status_code == 200
+        assert response.json()["inserted"] == 100
+        assert response.json()["failed"] == 0
+
+        intraday = client.get("/api/v1/stocks/300308.SZ/intraday?period=5&days=10")
+        assert intraday.status_code == 200
+        body = intraday.json()
+        assert body["total"] == 20
+        assert body["items"][0]["period_minutes"] == 5
+        assert body["items"][0]["bar_time"] == "2026-05-03T09:35:00"
+        assert body["items"][-1]["bar_time"] == "2026-05-12T09:40:00"

@@ -8,7 +8,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import CollectionJob, KlineDaily, MarketSnapshot, News, Stock, WatchSnapshot
+from app.models import CollectionJob, KlineDaily, KlineIntraday, MarketSnapshot, News, Stock, WatchSnapshot
 from app.services.notification_service import create_price_alert_if_needed
 from app.services.sentiment_service import classify_sentiment, estimate_importance
 
@@ -169,6 +169,41 @@ def ingest_kline_payload(db: Session, payload: dict[str, Any]) -> dict[str, Any]
             updated += 1
     summary = {"inserted": inserted, "updated": updated, "failed": len(payload.get("failed_items") or [])}
     _record_job(db, payload.get("job_type", "daily_kline"), source, "success", summary, {"count": len(items)})
+    db.commit()
+    return summary
+
+
+def ingest_intraday_kline_payload(db: Session, payload: dict[str, Any]) -> dict[str, Any]:
+    items = payload.get("items") or []
+    source = payload.get("source", "akshare")
+    inserted = updated = 0
+    for item in items:
+        stock = get_or_create_stock(db, item)
+        bar_time = parse_datetime(item.get("bar_time")).replace(tzinfo=None)
+        period_minutes = int(item.get("period_minutes") or 5)
+        row = db.get(KlineIntraday, {"stock_id": stock.id, "period_minutes": period_minutes, "bar_time": bar_time})
+        values = {
+            "open": decimal_or_none(item.get("open")),
+            "high": decimal_or_none(item.get("high")),
+            "low": decimal_or_none(item.get("low")),
+            "close": decimal_or_none(item.get("close")),
+            "volume": int_or_none(item.get("volume")),
+            "amount": decimal_or_none(item.get("amount")),
+            "amplitude": decimal_or_none(item.get("amplitude")),
+            "change_pct": decimal_or_none(item.get("change_pct")),
+            "change_amount": decimal_or_none(item.get("change_amount")),
+            "turnover_rate": decimal_or_none(item.get("turnover_rate")),
+            "source": source,
+        }
+        if row is None:
+            db.add(KlineIntraday(stock_id=stock.id, period_minutes=period_minutes, bar_time=bar_time, **values))
+            inserted += 1
+        else:
+            for field, value in values.items():
+                setattr(row, field, value)
+            updated += 1
+    summary = {"inserted": inserted, "updated": updated, "failed": len(payload.get("failed_items") or [])}
+    _record_job(db, payload.get("job_type", "intraday_kline"), source, "success", summary, {"count": len(items), "period_minutes": payload.get("period_minutes")})
     db.commit()
     return summary
 

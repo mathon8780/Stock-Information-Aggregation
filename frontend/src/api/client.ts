@@ -1,4 +1,4 @@
-import type { Advice, CollectionJob, Kline, NewsItem, NotificationItem, Paged, Snapshot, Stock, WatchItem } from '../types';
+import type { Advice, CollectionJob, IntradayKline, Kline, NewsItem, NotificationItem, Paged, Snapshot, Stock, WatchItem } from '../types';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000/api/v1';
 
@@ -12,6 +12,7 @@ export const api = {
   settings: () => request<Record<string, any>>('/settings'),
   stock: (code: string) => request<Stock & { latest_snapshot?: Snapshot | null; latest_advice?: Advice | null; is_watched: boolean }>(`/stocks/${code}`),
   kline: (code: string, limit = 90) => request<Paged<Kline>>(`/stocks/${code}/kline?limit=${limit}`),
+  intraday: (code: string, period = 5, days = 10) => request<Paged<IntradayKline>>(`/stocks/${code}/intraday?period=${period}&days=${days}`),
   stockSnapshots: (code: string, limit = 120) => request<Paged<Snapshot>>(`/stocks/${code}/snapshots?limit=${limit}`),
   stockNews: (code: string, limit = 20) => request<Paged<NewsItem>>(`/stocks/${code}/news?limit=${limit}`),
   market: (params: URLSearchParams) => request<Paged<Snapshot>>(`/market/snapshot?${params.toString()}`),
@@ -26,6 +27,7 @@ export const api = {
   collectBootstrap: () => request('/collector/real/bootstrap', { method: 'POST' }),
   collectMarket: () => request('/collector/real/market', { method: 'POST' }),
   collectHistory: () => request('/collector/real/history', { method: 'POST' }),
+  collectIntraday: () => request('/collector/real/intraday', { method: 'POST' }),
   jobs: (limit = 50) => request<Paged<CollectionJob>>(`/collection-jobs?limit=${limit}`),
   notifications: (status?: string) => request<Paged<NotificationItem>>(`/notifications?limit=100${status ? `&status=${status}` : ''}`),
 };

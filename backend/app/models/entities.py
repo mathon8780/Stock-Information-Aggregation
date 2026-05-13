@@ -32,6 +32,7 @@ class Stock(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
 
     klines: Mapped[list[KlineDaily]] = relationship(back_populates="stock", cascade="all, delete-orphan")
+    intraday_klines: Mapped[list[KlineIntraday]] = relationship(back_populates="stock", cascade="all, delete-orphan")
     market_snapshots: Mapped[list[MarketSnapshot]] = relationship(back_populates="stock")
     watch_snapshots: Mapped[list[WatchSnapshot]] = relationship(back_populates="stock")
     news: Mapped[list[News]] = relationship(back_populates="stock")
@@ -57,6 +58,28 @@ class KlineDaily(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
 
     stock: Mapped[Stock] = relationship(back_populates="klines")
+
+
+class KlineIntraday(Base):
+    __tablename__ = "kline_intraday"
+
+    stock_id: Mapped[int] = mapped_column(ForeignKey("stocks.id"), primary_key=True)
+    period_minutes: Mapped[int] = mapped_column(Integer, primary_key=True)
+    bar_time: Mapped[datetime] = mapped_column(DateTime(timezone=False), primary_key=True)
+    open: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))
+    high: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))
+    low: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))
+    close: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))
+    volume: Mapped[int | None] = mapped_column(BigInteger)
+    amount: Mapped[Decimal | None] = mapped_column(Numeric(24, 4))
+    amplitude: Mapped[Decimal | None] = mapped_column(Numeric(10, 4))
+    change_pct: Mapped[Decimal | None] = mapped_column(Numeric(10, 4))
+    change_amount: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))
+    turnover_rate: Mapped[Decimal | None] = mapped_column(Numeric(10, 4))
+    source: Mapped[str] = mapped_column(String(64), default="akshare", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+    stock: Mapped[Stock] = relationship(back_populates="intraday_klines")
 
 
 class MarketSnapshot(Base):

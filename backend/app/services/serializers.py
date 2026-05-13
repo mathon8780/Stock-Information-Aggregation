@@ -4,7 +4,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
-from app.models import CollectionJob, KlineDaily, MarketSnapshot, News, Notification, Stock, TradingAdvice, WatchSnapshot, Watchlist
+from app.models import CollectionJob, KlineDaily, KlineIntraday, MarketSnapshot, News, Notification, Stock, TradingAdvice, WatchSnapshot, Watchlist
 
 
 def scalar(value: Any) -> Any:
@@ -65,6 +65,24 @@ def kline_dict(row: KlineDaily) -> dict[str, Any]:
         "amount": scalar(row.amount),
         "amplitude": scalar(row.amplitude),
         "change_pct": scalar(row.change_pct),
+        "turnover_rate": scalar(row.turnover_rate),
+        "source": row.source,
+    }
+
+
+def intraday_kline_dict(row: KlineIntraday) -> dict[str, Any]:
+    return {
+        "bar_time": scalar(row.bar_time),
+        "period_minutes": row.period_minutes,
+        "open": scalar(row.open),
+        "high": scalar(row.high),
+        "low": scalar(row.low),
+        "close": scalar(row.close),
+        "volume": row.volume,
+        "amount": scalar(row.amount),
+        "amplitude": scalar(row.amplitude),
+        "change_pct": scalar(row.change_pct),
+        "change_amount": scalar(row.change_amount),
         "turnover_rate": scalar(row.turnover_rate),
         "source": row.source,
     }
@@ -157,4 +175,3 @@ def notification_dict(row: Notification) -> dict[str, Any]:
         "created_at": scalar(row.created_at),
         "sent_at": scalar(row.sent_at),
     }
-

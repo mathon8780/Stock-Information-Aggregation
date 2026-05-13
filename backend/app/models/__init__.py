@@ -1,6 +1,7 @@
 from app.models.entities import (
     CollectionJob,
     KlineDaily,
+    KlineIntraday,
     MarketSnapshot,
     News,
     Notification,
@@ -13,6 +14,7 @@ from app.models.entities import (
 __all__ = [
     "CollectionJob",
     "KlineDaily",
+    "KlineIntraday",
     "MarketSnapshot",
     "News",
     "Notification",
@@ -21,4 +23,3 @@ __all__ = [
     "WatchSnapshot",
     "Watchlist",
 ]
-

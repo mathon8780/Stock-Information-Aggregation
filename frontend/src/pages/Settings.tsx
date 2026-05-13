@@ -28,12 +28,13 @@ export default function Settings() {
 
   useEffect(() => { void load(); }, []);
 
-  const runTask = async (task: 'bootstrap' | 'market' | 'history') => {
+  const runTask = async (task: 'bootstrap' | 'market' | 'history' | 'intraday') => {
     setLoading(true);
     try {
       if (task === 'bootstrap') await api.collectBootstrap();
       if (task === 'market') await api.collectMarket();
       if (task === 'history') await api.collectHistory();
+      if (task === 'intraday') await api.collectIntraday();
       message.success('任务执行完成');
       await load();
     } catch (error) {
