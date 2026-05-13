@@ -1,10 +1,21 @@
 import { formatTime } from '../../../api/client';
-import type { Kline, Snapshot } from '../../../types';
+import type { IntradayKline, Kline, Snapshot } from '../../../types';
 
 export function createKlineOption(kline: Kline[]) {
   const dates = kline.map((item) => item.trade_date);
   const candle = kline.map((item) => [item.open, item.close, item.low, item.high]);
   const closes = kline.map((item) => item.close);
+  return createCandlestickOption(dates, candle, closes);
+}
+
+export function createIntradayKlineOption(kline: IntradayKline[]) {
+  const labels = kline.map((item) => formatTime(item.bar_time).slice(5, 16));
+  const candle = kline.map((item) => [item.open, item.close, item.low, item.high]);
+  const closes = kline.map((item) => item.close);
+  return createCandlestickOption(labels, candle, closes);
+}
+
+function createCandlestickOption(labels: string[], candle: number[][], closes: number[]) {
   const ma = (windowSize: number) => closes.map((_, index) => {
     const sample = closes.slice(Math.max(0, index - windowSize + 1), index + 1);
     return Number((sample.reduce((sum, value) => sum + value, 0) / sample.length).toFixed(2));
@@ -16,7 +27,7 @@ export function createKlineOption(kline: Kline[]) {
     tooltip: { trigger: 'axis' },
     legend: { data: ['K线', 'MA5', 'MA20', 'MA60'], top: 0, textStyle: { color: '#60707b' } },
     grid: { left: 48, right: 24, top: 42, bottom: 42 },
-    xAxis: { type: 'category', data: dates, boundaryGap: true, axisLine: { lineStyle: { color: '#cbd8df' } } },
+    xAxis: { type: 'category', data: labels, boundaryGap: true, axisLine: { lineStyle: { color: '#cbd8df' } } },
     yAxis: { scale: true, splitLine: { lineStyle: { color: '#e7eef2' } } },
     dataZoom: [{ type: 'inside' }, { type: 'slider', height: 18, bottom: 8 }],
     series: [
