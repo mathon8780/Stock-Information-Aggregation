@@ -23,10 +23,9 @@ export const api = {
   watchlist: () => request<Paged<WatchItem> & { max_size: number }>('/watchlist'),
   addWatch: (code: string) => request('/watchlist', { method: 'POST', body: JSON.stringify({ code }) }),
   removeWatch: (code: string) => request(`/watchlist/${code}`, { method: 'DELETE' }),
-  collectMarket: () => request('/collector/demo/market', { method: 'POST' }),
-  collectWatch: () => request('/collector/demo/watch', { method: 'POST' }),
-  collectNews: () => request('/collector/demo/news', { method: 'POST' }),
-  collectKline: () => request('/collector/demo/kline', { method: 'POST' }),
+  collectBootstrap: () => request('/collector/real/bootstrap', { method: 'POST' }),
+  collectMarket: () => request('/collector/real/market', { method: 'POST' }),
+  collectHistory: () => request('/collector/real/history', { method: 'POST' }),
   jobs: (limit = 50) => request<Paged<CollectionJob>>(`/collection-jobs?limit=${limit}`),
   notifications: (status?: string) => request<Paged<NotificationItem>>(`/notifications?limit=100${status ? `&status=${status}` : ''}`),
 };

@@ -91,6 +91,18 @@ def _record_job(db: Session, job_type: str, source: str, status: str, result_sum
     return row
 
 
+def record_collection_job(
+    db: Session,
+    job_type: str,
+    source: str,
+    status: str,
+    result_summary: dict[str, Any],
+    requested_payload: dict[str, Any] | None = None,
+    error_message: str | None = None,
+) -> CollectionJob:
+    return _record_job(db, job_type, source, status, result_summary, requested_payload, error_message)
+
+
 SNAPSHOT_FIELDS = {"price", "change_pct", "change_amount", "amount", "open", "high", "low", "amplitude", "turnover_rate", "volume_ratio", "pe", "pb", "total_mv", "circ_mv"}
 
 
@@ -197,4 +209,3 @@ def ingest_news_payload(db: Session, payload: dict[str, Any]) -> dict[str, Any]:
     _record_job(db, payload.get("job_type", "news"), source, "success", summary, {"count": len(items)})
     db.commit()
     return summary
-

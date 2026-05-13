@@ -1,0 +1,469 @@
+from __future__ import annotations
+
+import importlib
+import math
+import time
+from datetime import date, datetime, timedelta, timezone
+from typing import Any, Callable, Iterable
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app.analysis import calculate_indicators
+from app.config import settings
+from app.database import Base, engine, init_db
+from app.models import Stock, Watchlist
+from app.services.analysis_service import analyze_watchlist
+from app.services.ingest_service import ingest_kline_payload, ingest_market_payload, record_collection_job
+
+
+DEFAULT_WATCHLIST = [
+    {"code": "300308.SZ", "name": "中际旭创", "market": "SZ", "security_type": "stock", "industry": "CPO/光模块"},
+    {"code": "300502.SZ", "name": "新易盛", "market": "SZ", "security_type": "stock", "industry": "CPO/光模块"},
+    {"code": "300394.SZ", "name": "天孚通信", "market": "SZ", "security_type": "stock", "industry": "CPO/光模块"},
+    {"code": "601138.SH", "name": "工业富联", "market": "SH", "security_type": "stock", "industry": "AI算力"},
+    {"code": "000977.SZ", "name": "浪潮信息", "market": "SZ", "security_type": "stock", "industry": "AI算力"},
+]
+
+MAIN_INDICES = [
+    {"code": "000001.SH", "symbol": "000001", "name": "上证指数", "market": "INDEX", "security_type": "index", "industry": "指数"},
+    {"code": "399001.SZ", "symbol": "399001", "name": "深证成指", "market": "INDEX", "security_type": "index", "industry": "指数"},
+    {"code": "399006.SZ", "symbol": "399006", "name": "创业板指", "market": "INDEX", "security_type": "index", "industry": "指数"},
+    {"code": "000300.SH", "symbol": "000300", "name": "沪深300", "market": "INDEX", "security_type": "index", "industry": "指数"},
+    {"code": "000905.SH", "symbol": "000905", "name": "中证500", "market": "INDEX", "security_type": "index", "industry": "指数"},
+]
+
+INDEX_SPOT_GROUPS = ["沪深重要指数", "上证系列指数", "深证系列指数", "中证系列指数"]
+BACKOFF_SECONDS = [60, 120, 300]
+
+
+class AkshareCollector:
+    def __init__(
+        self,
+        ak_module: Any | None = None,
+        sleep_fn: Callable[[float], None] = time.sleep,
+        request_interval_seconds: float | None = None,
+        backoff_seconds: Iterable[float] | None = None,
+    ):
+        self.ak = ak_module or importlib.import_module("akshare")
+        self.sleep = sleep_fn
+        self.request_interval_seconds = (
+            settings.request_min_interval_seconds if request_interval_seconds is None else request_interval_seconds
+        )
+        self.backoff_seconds = list(BACKOFF_SECONDS if backoff_seconds is None else backoff_seconds)
+
+    def bootstrap(self, db: Session, reset: bool = True) -> dict[str, Any]:
+        if reset:
+            Base.metadata.drop_all(bind=engine)
+            Base.metadata.create_all(bind=engine)
+            init_db()
+
+        market_summary = self.collect_market_snapshot(db)
+        watch_summary = ensure_default_watchlist(db)
+        history_summary = self.collect_history(db)
+        try:
+            advice_rows = analyze_watchlist(db)
+            advice_summary = {"analyzed": len(advice_rows)}
+        except Exception as exc:  # strategy failure should not hide successful data sync
+            record_collection_job(
+                db,
+                "analysis",
+                "rule_engine",
+                "failed",
+                {"analyzed": 0},
+                {"scope": "watchlist"},
+                str(exc),
+            )
+            db.commit()
+            advice_summary = {"analyzed": 0, "error": str(exc)}
+        return {
+            "market": market_summary,
+            "watchlist": watch_summary,
+            "history": history_summary,
+            "advice": advice_summary,
+        }
+
+    def collect_market_snapshot(self, db: Session) -> dict[str, Any]:
+        try:
+            now = datetime.now(timezone.utc)
+            stock_items = self._build_stock_spot_items(now)
+            index_items, failed_items = self._build_index_spot_items(now)
+            payload = {
+                "job_type": "market_snapshot",
+                "source": "akshare",
+                "fetched_at": now.isoformat(),
+                "items": stock_items + index_items,
+                "failed_items": failed_items,
+            }
+            return ingest_market_payload(db, payload)
+        except Exception as exc:
+            record_collection_job(db, "market_snapshot", "akshare", "failed", {"inserted_market": 0, "failed": 1}, {}, str(exc))
+            db.commit()
+            return {"inserted_market": 0, "inserted_watch": 0, "skipped": 0, "failed": 1, "error": str(exc)}
+
+    def collect_history(self, db: Session, days: int = 365) -> dict[str, Any]:
+        end = date.today()
+        start = end - timedelta(days=days)
+        items: list[dict[str, Any]] = []
+        failed_items: list[dict[str, Any]] = []
+        targets = [*DEFAULT_WATCHLIST, *MAIN_INDICES]
+
+        for idx, target in enumerate(targets):
+            if idx:
+                self.sleep(self.request_interval_seconds)
+            try:
+                rows = self._call_with_backoff(lambda t=target: self._history_rows_for_target(t, start, end), target["code"])
+                items.extend(rows)
+            except Exception as exc:
+                failed_items.append({"code": target["code"], "name": target["name"], "error": str(exc)})
+
+        if not items:
+            record_collection_job(
+                db,
+                "daily_kline",
+                "akshare",
+                "failed",
+                {"inserted": 0, "updated": 0, "failed": len(failed_items)},
+                {"days": days, "targets": [item["code"] for item in targets]},
+                "; ".join(item["error"] for item in failed_items[:3]),
+            )
+            db.commit()
+            return {"inserted": 0, "updated": 0, "failed": len(failed_items), "failed_items": failed_items}
+
+        payload = {
+            "job_type": "daily_kline",
+            "source": "akshare",
+            "fetched_at": datetime.now(timezone.utc).isoformat(),
+            "items": items,
+            "failed_items": failed_items,
+        }
+        summary = ingest_kline_payload(db, payload)
+        summary["failed_items"] = failed_items
+        return summary
+
+    def _build_stock_spot_items(self, now: datetime) -> list[dict[str, Any]]:
+        df = self._stock_spot_frame()
+        items: list[dict[str, Any]] = []
+        watch_codes = {item["code"] for item in DEFAULT_WATCHLIST}
+        watch_meta = {item["code"]: item for item in DEFAULT_WATCHLIST}
+        for row in _records(df):
+            raw_code = str(_value(row, "代码", "code") or "").strip()
+            if not raw_code:
+                continue
+            code = normalize_a_code(raw_code)
+            meta = watch_meta.get(code)
+            items.append(
+                {
+                    "code": code,
+                    "name": str(_value(row, "名称", "name") or (meta or {}).get("name") or code),
+                    "market": infer_market_from_code(code),
+                    "security_type": "stock",
+                    "industry": (meta or {}).get("industry"),
+                    "price": _float(row, "最新价"),
+                    "change_pct": _float(row, "涨跌幅"),
+                    "change_amount": _float(row, "涨跌额"),
+                    "volume": _int(row, "成交量"),
+                    "amount": _float(row, "成交额"),
+                    "open": _float(row, "今开", "开盘"),
+                    "high": _float(row, "最高"),
+                    "low": _float(row, "最低"),
+                    "amplitude": _float(row, "振幅"),
+                    "turnover_rate": _float(row, "换手率"),
+                    "volume_ratio": _float(row, "量比"),
+                    "pe": _float(row, "市盈率-动态", "市盈率"),
+                    "pb": _float(row, "市净率"),
+                    "total_mv": _float(row, "总市值"),
+                    "circ_mv": _float(row, "流通市值"),
+                    "is_watch": code in watch_codes,
+                    "idempotency_key": f"akshare:market:{code}:{now.isoformat(timespec='minutes')}",
+                    "watch_idempotency_key": f"akshare:watch:{code}:{now.isoformat(timespec='minutes')}",
+                }
+            )
+        return items
+
+    def _stock_spot_frame(self) -> Any:
+        errors: list[str] = []
+        if hasattr(self.ak, "stock_zh_a_spot_em"):
+            try:
+                return self.ak.stock_zh_a_spot_em()
+            except Exception as exc:
+                errors.append(f"stock_zh_a_spot_em: {exc}")
+        if hasattr(self.ak, "stock_zh_a_spot"):
+            try:
+                return self.ak.stock_zh_a_spot()
+            except Exception as exc:
+                errors.append(f"stock_zh_a_spot: {exc}")
+        raise RuntimeError("; ".join(errors) or "AKShare stock spot interface is unavailable")
+
+    def _build_index_spot_items(self, now: datetime) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        wanted = {item["symbol"]: item for item in MAIN_INDICES}
+        found: dict[str, dict[str, Any]] = {}
+        errors: list[str] = []
+        for idx, group in enumerate(INDEX_SPOT_GROUPS):
+            if idx:
+                self.sleep(min(self.request_interval_seconds, 1))
+            try:
+                df = self.ak.stock_zh_index_spot_em(symbol=group)
+            except Exception as exc:
+                errors.append(f"stock_zh_index_spot_em({group}): {exc}")
+                continue
+            for row in _records(df):
+                symbol = _index_symbol(_value(row, "代码", "code"))
+                if symbol in wanted:
+                    found[symbol] = row
+        if len(found) < len(wanted) and hasattr(self.ak, "stock_zh_index_spot_sina"):
+            try:
+                df = self.ak.stock_zh_index_spot_sina()
+                for row in _records(df):
+                    symbol = _index_symbol(_value(row, "代码", "code"))
+                    if symbol in wanted:
+                        found[symbol] = row
+            except Exception as exc:
+                errors.append(f"stock_zh_index_spot_sina: {exc}")
+
+        items: list[dict[str, Any]] = []
+        failed_items: list[dict[str, Any]] = []
+        for symbol, meta in wanted.items():
+            row = found.get(symbol)
+            if row is None:
+                failed_items.append(
+                    {
+                        "code": meta["code"],
+                        "name": meta["name"],
+                        "error": "; ".join(errors[-2:]) or "index spot row not found",
+                    }
+                )
+                continue
+            items.append(
+                {
+                    **meta,
+                    "price": _float(row, "最新价", "最新"),
+                    "change_pct": _float(row, "涨跌幅"),
+                    "change_amount": _float(row, "涨跌额"),
+                    "volume": _int(row, "成交量"),
+                    "amount": _float(row, "成交额"),
+                    "open": _float(row, "今开", "开盘"),
+                    "high": _float(row, "最高"),
+                    "low": _float(row, "最低"),
+                    "amplitude": _float(row, "振幅"),
+                    "volume_ratio": _float(row, "量比"),
+                    "idempotency_key": f"akshare:market:{meta['code']}:{now.isoformat(timespec='minutes')}",
+                }
+            )
+        return items, failed_items
+
+    def _history_rows_for_target(self, target: dict[str, str], start: date, end: date) -> list[dict[str, Any]]:
+        start_text = start.strftime("%Y%m%d")
+        end_text = end.strftime("%Y%m%d")
+        symbol = target.get("symbol") or target["code"].split(".")[0]
+        if target["security_type"] == "index":
+            df = self._index_history_frame(target, start_text, end_text)
+        else:
+            df = self._stock_history_frame(target, symbol, start_text, end_text)
+
+        rows: list[dict[str, Any]] = []
+        for row in _records(df):
+            trade_date = _as_date(_value(row, "日期", "date"))
+            if not trade_date:
+                continue
+            if trade_date < start or trade_date > end:
+                continue
+            rows.append(
+                {
+                    **target,
+                    "trade_date": trade_date.isoformat(),
+                    "open": _float(row, "开盘", "open"),
+                    "high": _float(row, "最高", "high"),
+                    "low": _float(row, "最低", "low"),
+                    "close": _float(row, "收盘", "close"),
+                    "volume": _int(row, "成交量", "volume"),
+                    "amount": _float(row, "成交额", "成交金额", "amount"),
+                    "amplitude": _float(row, "振幅", "amplitude"),
+                    "change_pct": _float(row, "涨跌幅", "change_pct"),
+                    "turnover_rate": _turnover_rate(row),
+                }
+            )
+        return rows
+
+    def _stock_history_frame(self, target: dict[str, str], symbol: str, start_text: str, end_text: str) -> Any:
+        errors: list[str] = []
+        if hasattr(self.ak, "stock_zh_a_hist"):
+            try:
+                return self.ak.stock_zh_a_hist(
+                    symbol=symbol,
+                    period="daily",
+                    start_date=start_text,
+                    end_date=end_text,
+                    adjust="qfq",
+                )
+            except Exception as exc:
+                errors.append(f"stock_zh_a_hist: {exc}")
+
+        market_symbol = f"{'sh' if target['code'].endswith('.SH') else 'sz'}{symbol}"
+        if hasattr(self.ak, "stock_zh_a_daily"):
+            try:
+                return self.ak.stock_zh_a_daily(
+                    symbol=market_symbol,
+                    start_date=start_text,
+                    end_date=end_text,
+                    adjust="qfq",
+                )
+            except Exception as exc:
+                errors.append(f"stock_zh_a_daily: {exc}")
+        if hasattr(self.ak, "stock_zh_a_hist_tx"):
+            try:
+                return self.ak.stock_zh_a_hist_tx(
+                    symbol=market_symbol,
+                    start_date=start_text,
+                    end_date=end_text,
+                    adjust="qfq",
+                )
+            except Exception as exc:
+                errors.append(f"stock_zh_a_hist_tx: {exc}")
+        raise RuntimeError("; ".join(errors) or "AKShare stock history interface is unavailable")
+
+    def _index_history_frame(self, target: dict[str, str], start_text: str, end_text: str) -> Any:
+        symbol = target.get("symbol") or target["code"].split(".")[0]
+        errors: list[str] = []
+        if hasattr(self.ak, "index_zh_a_hist"):
+            try:
+                return self.ak.index_zh_a_hist(symbol=symbol, period="daily", start_date=start_text, end_date=end_text)
+            except Exception as exc:
+                errors.append(f"index_zh_a_hist: {exc}")
+
+        market_symbol = f"{'sh' if target['code'].endswith('.SH') else 'sz'}{symbol}"
+        for function_name in ("stock_zh_index_daily", "stock_zh_index_daily_tx"):
+            if not hasattr(self.ak, function_name):
+                continue
+            try:
+                return getattr(self.ak, function_name)(symbol=market_symbol)
+            except Exception as exc:
+                errors.append(f"{function_name}: {exc}")
+        raise RuntimeError("; ".join(errors) or "AKShare index history interface is unavailable")
+
+    def _call_with_backoff(self, func: Callable[[], list[dict[str, Any]]], label: str) -> list[dict[str, Any]]:
+        last_error: Exception | None = None
+        for attempt in range(len(self.backoff_seconds) + 1):
+            try:
+                return func()
+            except Exception as exc:
+                last_error = exc
+                if attempt < len(self.backoff_seconds):
+                    self.sleep(self.backoff_seconds[attempt])
+        raise RuntimeError(f"{label} failed after retries: {last_error}") from last_error
+
+
+def ensure_default_watchlist(db: Session) -> dict[str, Any]:
+    inserted = 0
+    for order, item in enumerate(DEFAULT_WATCHLIST, start=1):
+        stock = db.execute(select(Stock).where(Stock.code == item["code"])).scalar_one_or_none()
+        if stock is None:
+            stock = Stock(**item)
+            db.add(stock)
+            db.flush()
+        else:
+            stock.name = item["name"]
+            stock.market = item["market"]
+            stock.security_type = item["security_type"]
+            stock.industry = item["industry"]
+        existing = db.execute(select(Watchlist).where(Watchlist.stock_id == stock.id)).scalar_one_or_none()
+        if existing is None:
+            db.add(Watchlist(stock_id=stock.id, display_order=order, alert_threshold_pct=3.0))
+            inserted += 1
+        else:
+            existing.display_order = order
+    db.commit()
+    return {"default_watchlist_size": len(DEFAULT_WATCHLIST), "inserted": inserted}
+
+
+def build_indicator_preview(rows: Iterable[dict[str, Any]]) -> dict[str, Any]:
+    return calculate_indicators(list(rows))
+
+
+def normalize_a_code(raw_code: str) -> str:
+    code = raw_code.strip().upper().split(".")[0]
+    if len(code) >= 8 and code[:2] in {"SH", "SZ", "BJ"} and code[2:].isdigit():
+        return f"{code[2:]}.{code[:2]}"
+    if code.startswith(("600", "601", "603", "605", "688", "689", "900")):
+        return f"{code}.SH"
+    if code.startswith(("000", "001", "002", "003", "300", "301", "200")):
+        return f"{code}.SZ"
+    if code.startswith(("430", "8", "4")):
+        return f"{code}.BJ"
+    return raw_code.strip().upper()
+
+
+def infer_market_from_code(code: str) -> str:
+    if code.endswith(".SH"):
+        return "SH"
+    if code.endswith(".SZ"):
+        return "SZ"
+    if code.endswith(".BJ"):
+        return "BJ"
+    return "UNKNOWN"
+
+
+def _records(df: Any) -> list[dict[str, Any]]:
+    if df is None:
+        return []
+    if hasattr(df, "to_dict"):
+        return list(df.to_dict("records"))
+    return list(df)
+
+
+def _value(row: dict[str, Any], *names: str) -> Any:
+    for name in names:
+        if name in row:
+            value = row[name]
+            if value is not None and not (isinstance(value, float) and math.isnan(value)):
+                return value
+    return None
+
+
+def _index_symbol(raw_code: Any) -> str:
+    raw = str(raw_code or "").strip().lower()
+    if len(raw) >= 8 and raw[:2] in {"sh", "sz", "bj"}:
+        return raw[2:8]
+    return raw.split(".")[0]
+
+
+def _as_date(value: Any) -> date | None:
+    if value in (None, ""):
+        return None
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    text = str(value)[:10]
+    try:
+        return date.fromisoformat(text)
+    except ValueError:
+        return None
+
+
+def _float(row: dict[str, Any], *names: str) -> float | None:
+    value = _value(row, *names)
+    if value in (None, "", "-"):
+        return None
+    try:
+        number = float(str(value).replace(",", ""))
+    except ValueError:
+        return None
+    if math.isnan(number):
+        return None
+    return number
+
+
+def _int(row: dict[str, Any], *names: str) -> int | None:
+    value = _float(row, *names)
+    return None if value is None else int(value)
+
+
+def _turnover_rate(row: dict[str, Any]) -> float | None:
+    value = _float(row, "换手率", "turnover_rate")
+    if value is not None:
+        return value
+    value = _float(row, "turnover")
+    if value is not None and 0 < value <= 1:
+        return value * 100
+    return value

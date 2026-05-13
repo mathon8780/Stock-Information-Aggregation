@@ -53,7 +53,7 @@ class KlineDaily(Base):
     amplitude: Mapped[Decimal | None] = mapped_column(Numeric(10, 4))
     change_pct: Mapped[Decimal | None] = mapped_column(Numeric(10, 4))
     turnover_rate: Mapped[Decimal | None] = mapped_column(Numeric(10, 4))
-    source: Mapped[str] = mapped_column(String(64), default="demo", nullable=False)
+    source: Mapped[str] = mapped_column(String(64), default="akshare", nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
 
     stock: Mapped[Stock] = relationship(back_populates="klines")
@@ -127,7 +127,7 @@ class News(Base):
     title: Mapped[str] = mapped_column(Text, nullable=False)
     summary: Mapped[str | None] = mapped_column(Text)
     content: Mapped[str | None] = mapped_column(Text)
-    source: Mapped[str] = mapped_column(String(128), default="demo", nullable=False)
+    source: Mapped[str] = mapped_column(String(128), default="manual", nullable=False)
     url: Mapped[str | None] = mapped_column(Text)
     content_hash: Mapped[str] = mapped_column(String(128), nullable=False)
     sentiment: Mapped[str] = mapped_column(String(16), default="neutral", nullable=False)
@@ -201,4 +201,3 @@ class Notification(Base):
     error_message: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True, nullable=False)
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-

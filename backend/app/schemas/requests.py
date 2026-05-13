@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 
 
 class AddWatchRequest(BaseModel):
-    code: str = Field(..., examples=["600519.SH"])
+    code: str = Field(..., examples=["300308.SZ"])
     alert_enabled: bool = True
     alert_threshold_pct: float = 3.0
     strategy_push_enabled: bool = True
@@ -26,4 +26,3 @@ class NotificationResultRequest(BaseModel):
     sent_at: datetime | None = None
     error_message: str | None = None
     payload: dict[str, Any] | None = None
-

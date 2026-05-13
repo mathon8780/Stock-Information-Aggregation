@@ -13,9 +13,9 @@ from app.database import get_db
 from app.models import CollectionJob, KlineDaily, MarketSnapshot, News, Notification, Stock, TradingAdvice, WatchSnapshot, Watchlist
 from app.schemas import AddWatchRequest, NotificationResultRequest, UpdateWatchRequest
 from app.services.analysis_service import DISCLAIMER, analyze_stock, analyze_watchlist
-from app.services.collector_service import build_demo_kline_payload, build_demo_market_payload, build_demo_news_payload
 from app.services.ingest_service import ingest_kline_payload, ingest_market_payload, ingest_news_payload, normalize_code
 from app.services.notification_service import update_notification_result
+from app.services.real_collector_service import AkshareCollector, DEFAULT_WATCHLIST
 from app.services.serializers import advice_dict, job_dict, kline_dict, news_dict, notification_dict, snapshot_dict, stock_dict, watchlist_dict
 
 
@@ -33,6 +33,8 @@ def get_settings() -> dict[str, Any]:
         "app_env": settings.app_env,
         "database": "sqlite" if settings.database_url.startswith("sqlite") else "postgresql",
         "auto_seed_demo_data": settings.auto_seed_demo_data,
+        "market_data_primary": settings.market_data_primary,
+        "default_watchlist": DEFAULT_WATCHLIST,
         "collector_intervals": {"market_snapshot_seconds": settings.market_snapshot_interval_seconds, "watch_snapshot_seconds": settings.watch_snapshot_interval_seconds, "news_seconds": settings.news_interval_seconds, "advice_seconds": settings.advice_interval_seconds},
         "risk_control": {"request_min_interval_seconds": settings.request_min_interval_seconds, "fetch_failure_downgrade_threshold": settings.fetch_failure_downgrade_threshold, "max_watchlist_size": settings.max_watchlist_size},
         "qqbot": {"target": settings.qqbot_target, "price_alert": settings.qqbot_enable_price_alert, "strategy_alert": settings.qqbot_enable_strategy_alert, "daily_summary": settings.qqbot_enable_daily_summary, "job_failed_alert": settings.qqbot_enable_job_failed_alert},
@@ -246,24 +248,19 @@ def ingest_notification_result(request: NotificationResultRequest, db: Session =
     return notification_dict(row)
 
 
-@router.post("/collector/demo/market")
-def collect_demo_market(db: Session = Depends(get_db)) -> dict[str, Any]:
-    return ingest_market_payload(db, build_demo_market_payload())
+@router.post("/collector/real/bootstrap")
+def collect_real_bootstrap(reset: bool = True, db: Session = Depends(get_db)) -> dict[str, Any]:
+    return AkshareCollector().bootstrap(db, reset=reset)
 
 
-@router.post("/collector/demo/watch")
-def collect_demo_watch(db: Session = Depends(get_db)) -> dict[str, Any]:
-    return ingest_market_payload(db, build_demo_market_payload(watch_only=True), watch_only=True)
+@router.post("/collector/real/market")
+def collect_real_market(db: Session = Depends(get_db)) -> dict[str, Any]:
+    return AkshareCollector().collect_market_snapshot(db)
 
 
-@router.post("/collector/demo/kline")
-def collect_demo_kline(db: Session = Depends(get_db)) -> dict[str, Any]:
-    return ingest_kline_payload(db, build_demo_kline_payload(days=90))
-
-
-@router.post("/collector/demo/news")
-def collect_demo_news(db: Session = Depends(get_db)) -> dict[str, Any]:
-    return ingest_news_payload(db, build_demo_news_payload())
+@router.post("/collector/real/history")
+def collect_real_history(db: Session = Depends(get_db)) -> dict[str, Any]:
+    return AkshareCollector().collect_history(db)
 
 
 @router.get("/collection-jobs")
@@ -311,4 +308,3 @@ def _sort_value(snapshot: MarketSnapshot, stock: Stock, sort_by: str) -> Any:
         return getattr(stock, sort_by) or ""
     value = getattr(snapshot, sort_by, None)
     return float(value) if value is not None else -999999999
-
