@@ -1,6 +1,6 @@
 # OpenClaw 任务脚本
 
-这些脚本面向 OpenClaw 或本机任务编排使用。当前版本只调用后端真实数据接口，不再调用 demo 采集端点。新闻采集仍未启用；QQBot 发送仍默认 dry-run。
+这些脚本面向 OpenClaw 或本机任务编排使用。当前版本只调用后端真实数据接口，不再调用 demo 采集端点。新闻采集使用 NewsNow + 用户可配置的 OpenAI 兼容 LLM；QQBot 发送仍默认 dry-run。
 
 ## 任务映射
 
@@ -9,7 +9,7 @@
 | `market-data-fetcher` | `market-data-fetcher/run.py` | 调用 `/api/v1/collector/real/market` 采集全市场快照和关注股快照 |
 | `market-intraday-fetcher` | `market-intraday-fetcher/run.py` | 调用 `/api/v1/collector/real/intraday` 低频同步自选股 5 分钟 K |
 | `market-history-fetcher` | `market-history-fetcher/run.py` | 调用 `/api/v1/collector/real/history` 低频同步日 K |
-| `market-info-fetcher` | `market-info-fetcher/run.py` | 新闻采集未启用，当前明确跳过 |
+| `market-info-fetcher` | `market-info-fetcher/run.py` | 调用 `/api/v1/collector/real/news` 采集真实新闻并用配置的 LLM 整理 |
 | `market-analysis-trigger` | `market-analysis-trigger/run.py` | 触发自选股策略分析 |
 | `market-alert-publisher` | `market-alert-publisher/run.py` | 发布 pending 通知并回写状态 |
 | `local-scheduler` | `local-scheduler/run.py` | 本地循环执行真实采集与分析任务 |
@@ -21,6 +21,11 @@
 - `ADVICE_INTERVAL_SECONDS`：默认 `900`，只建议交易时段执行。
 - `INTRADAY_INTERVAL_SECONDS`：默认 `86400`，避免高频抓取 5 分钟 K。
 - `HISTORY_INTERVAL_SECONDS`：默认 `86400`，避免高频抓取历史日 K。
+- `NEWS_INTERVAL_SECONDS`：默认 `900`，控制新闻同步频率。
+- `NEWS_LLM_PROVIDER`：默认 `deepseek`。
+- `NEWS_LLM_API_KEY`：新闻整理 LLM API Key，必需。
+- `NEWS_LLM_API_BASE_URL`：默认 `https://api.deepseek.com`。
+- `NEWS_LLM_MODEL`：默认 `deepseek-chat`。
 - `QQBOT_DRY_RUN`：默认 `true`，只在控制台打印并将通知标记为 sent。
 
 ## 本地调度

@@ -18,7 +18,6 @@ tasks:
     command: ".\\.venv\\Scripts\\python openclaw\\market-info-fetcher\\run.py"
     interval_seconds: 900
     trading_hours_only: false
-    enabled: false
 
   - name: market-analysis-trigger
     command: ".\\.venv\\Scripts\\python openclaw\\market-analysis-trigger\\run.py"

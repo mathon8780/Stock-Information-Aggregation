@@ -25,10 +25,10 @@ def test_openclaw_scripts_do_not_call_demo_collectors() -> None:
     assert "market-data-fetcher" in data_fetcher
     assert "collector/demo" not in data_fetcher
     assert "collector/demo" not in info_fetcher
-    assert "news collection disabled" in info_fetcher
+    assert "market-info-fetcher" in info_fetcher
 
 
-def test_openclaw_scheduler_uses_real_endpoints_and_skips_news() -> None:
+def test_openclaw_scheduler_uses_real_endpoints() -> None:
     sys.path.insert(0, str(OPENCLAW_ROOT))
     try:
         scheduler = importlib.import_module("common.scheduler")
@@ -47,6 +47,6 @@ def test_openclaw_scheduler_uses_real_endpoints_and_skips_news() -> None:
 
     assert market_result["status"] == "success"
     assert intraday_result["status"] == "success"
-    assert news_result["status"] == "skipped"
-    assert calls == ["/api/v1/collector/real/market", "/api/v1/collector/real/intraday"]
+    assert news_result["status"] == "success"
+    assert calls == ["/api/v1/collector/real/market", "/api/v1/collector/real/intraday", "/api/v1/collector/real/news"]
     assert all("collector/demo" not in (task.endpoint or "") for task in scheduler.default_tasks())

@@ -28,6 +28,7 @@ export const api = {
   collectMarket: () => request('/collector/real/market', { method: 'POST' }),
   collectHistory: () => request('/collector/real/history', { method: 'POST' }),
   collectIntraday: () => request('/collector/real/intraday', { method: 'POST' }),
+  collectNews: () => request('/collector/real/news', { method: 'POST' }),
   jobs: (limit = 50) => request<Paged<CollectionJob>>(`/collection-jobs?limit=${limit}`),
   notifications: (status?: string) => request<Paged<NotificationItem>>(`/notifications?limit=100${status ? `&status=${status}` : ''}`),
 };

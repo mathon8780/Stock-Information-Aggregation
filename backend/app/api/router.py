@@ -14,6 +14,7 @@ from app.models import CollectionJob, KlineDaily, KlineIntraday, MarketSnapshot,
 from app.schemas import AddWatchRequest, NotificationResultRequest, UpdateWatchRequest
 from app.services.analysis_service import DISCLAIMER, analyze_stock, analyze_watchlist
 from app.services.ingest_service import ingest_kline_payload, ingest_market_payload, ingest_news_payload, normalize_code
+from app.services.news_collector_service import NewsCollector
 from app.services.notification_service import update_notification_result
 from app.services.real_collector_service import AkshareCollector, DEFAULT_WATCHLIST
 from app.services.serializers import advice_dict, intraday_kline_dict, job_dict, kline_dict, news_dict, notification_dict, snapshot_dict, stock_dict, watchlist_dict
@@ -37,6 +38,13 @@ def get_settings() -> dict[str, Any]:
         "default_watchlist": DEFAULT_WATCHLIST,
         "collector_intervals": {"market_snapshot_seconds": settings.market_snapshot_interval_seconds, "watch_snapshot_seconds": settings.watch_snapshot_interval_seconds, "news_seconds": settings.news_interval_seconds, "advice_seconds": settings.advice_interval_seconds},
         "risk_control": {"request_min_interval_seconds": settings.request_min_interval_seconds, "fetch_failure_downgrade_threshold": settings.fetch_failure_downgrade_threshold, "max_watchlist_size": settings.max_watchlist_size},
+        "news": {
+            "source": "newsnow",
+            "llm_provider": settings.news_llm_provider,
+            "api_base_url": settings.news_llm_api_base_url,
+            "api_key_configured": bool(settings.news_llm_api_key),
+            "model": settings.news_llm_model,
+        },
         "qqbot": {"target": settings.qqbot_target, "price_alert": settings.qqbot_enable_price_alert, "strategy_alert": settings.qqbot_enable_strategy_alert, "daily_summary": settings.qqbot_enable_daily_summary, "job_failed_alert": settings.qqbot_enable_job_failed_alert},
         "analysis_engine": settings.analysis_engine,
         "disclaimer": DISCLAIMER,
@@ -302,6 +310,11 @@ def collect_real_intraday(trading_days: int = Query(10, ge=1, le=30), period: in
         return AkshareCollector().collect_intraday(db, trading_days=trading_days, period_minutes=period)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/collector/real/news")
+def collect_real_news(limit: int = Query(30, ge=1, le=100), db: Session = Depends(get_db)) -> dict[str, Any]:
+    return NewsCollector().collect(db, limit=limit)
 
 
 @router.get("/collection-jobs")

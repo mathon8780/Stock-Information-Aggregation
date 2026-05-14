@@ -9,7 +9,6 @@ from common.scheduler import run_task
 
 
 def main() -> None:
-    # news collection disabled until a real source is implemented.
     print(run_task("market-info-fetcher", enforce_trading_hours=False))
 
 

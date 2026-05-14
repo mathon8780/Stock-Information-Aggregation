@@ -49,6 +49,7 @@ class Settings:
     watch_snapshot_interval_seconds: int = _int("WATCH_SNAPSHOT_INTERVAL_SECONDS", 60)
     news_interval_seconds: int = _int("NEWS_INTERVAL_SECONDS", 900)
     advice_interval_seconds: int = _int("ADVICE_INTERVAL_SECONDS", 900)
+    news_source_request_interval_seconds: int = _int("NEWS_SOURCE_REQUEST_INTERVAL_SECONDS", 2)
 
     request_min_interval_seconds: int = _int("REQUEST_MIN_INTERVAL_SECONDS", 3)
     fetch_failure_downgrade_threshold: int = _int("FETCH_FAILURE_DOWNGRADE_THRESHOLD", 3)
@@ -60,6 +61,11 @@ class Settings:
     local_llm_enabled: bool = _bool("LOCAL_LLM_ENABLED", False)
     local_llm_base_url: str = os.getenv("LOCAL_LLM_BASE_URL", "http://localhost:11434")
     local_llm_model: str = os.getenv("LOCAL_LLM_MODEL", "")
+    news_llm_provider: str = os.getenv("NEWS_LLM_PROVIDER", "deepseek")
+    news_llm_api_key: str = os.getenv("NEWS_LLM_API_KEY", os.getenv("DEEPSEEK_API_KEY", ""))
+    news_llm_api_base_url: str = os.getenv("NEWS_LLM_API_BASE_URL", os.getenv("DEEPSEEK_API_BASE_URL", "https://api.deepseek.com"))
+    news_llm_model: str = os.getenv("NEWS_LLM_MODEL", os.getenv("DEEPSEEK_MODEL", "deepseek-chat"))
+    newsnow_api_base_url: str = os.getenv("NEWSNOW_API_BASE_URL", "https://newsnow.busiyi.world/api")
 
 
 settings = Settings()

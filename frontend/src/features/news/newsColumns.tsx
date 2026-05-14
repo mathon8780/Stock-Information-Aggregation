@@ -1,4 +1,5 @@
-import { Space, Tag } from 'antd';
+import { LinkOutlined } from '@ant-design/icons';
+import { Button, Space, Tag } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { formatTime } from '../../api/client';
 import SentimentTag from '../../components/SentimentTag';
@@ -13,4 +14,5 @@ export const newsColumns: ColumnsType<NewsItem> = [
   { title: '重要性', width: 90, dataIndex: 'importance', render: (value: number) => <Tag color={value >= 4 ? 'orange' : 'default'}>{value}</Tag> },
   { title: '来源', width: 130, dataIndex: 'source' },
   { title: '发布时间', width: 180, render: (_: unknown, row: NewsItem) => formatTime(row.published_at) },
+  { title: '原文', width: 90, render: (_: unknown, row: NewsItem) => row.url ? <Button size="small" icon={<LinkOutlined />} href={row.url} target="_blank" rel="noreferrer" /> : '-' },
 ];

@@ -10,7 +10,8 @@ from sqlalchemy import event
 from app.api import router as api_router
 from app.main import app
 from app.database import SessionLocal, engine
-from app.models import KlineDaily, News
+from app.models import CollectionJob, KlineDaily, News
+from app.services.news_collector_service import NewsCollector
 from app.services.real_collector_service import AkshareCollector
 
 
@@ -142,3 +143,79 @@ def test_settings_watchlist_limit_is_20():
         response = client.get("/api/v1/settings")
         assert response.status_code == 200
         assert response.json()["risk_control"]["max_watchlist_size"] == 20
+        assert response.json()["news"]["llm_provider"] == "deepseek"
+        assert response.json()["news"]["api_base_url"] == "https://api.deepseek.com"
+        assert response.json()["news"]["api_key_configured"] is False
+
+
+class FakeNewsFetcher:
+    def fetch_source(self, source_id: str, source_name: str, limit: int):
+        return [
+            {
+                "source_id": source_id,
+                "source_name": source_name,
+                "id": "n-1",
+                "title": "中际旭创CPO订单增长，AI算力链条延续高景气",
+                "url": "https://example.com/news/1",
+                "published_at": "2026-05-14T10:00:00+08:00",
+                "raw": {"id": "n-1", "title": "中际旭创CPO订单增长，AI算力链条延续高景气"},
+            }
+        ]
+
+
+class FakeNewsFormatter:
+    model = "fake-deepseek"
+
+    def format_items(self, items, watchlist):
+        assert watchlist[0]["code"] == "300308.SZ"
+        return [
+            {
+                "source_item_id": "n-1",
+                "title": "中际旭创CPO订单增长",
+                "summary": "DeepSeek整理：CPO和AI算力需求继续支撑光模块龙头订单。",
+                "content": "DeepSeek整理正文：新闻提到中际旭创CPO订单增长，并提示关注AI算力链条景气度。",
+                "source": "newsnow:财联社",
+                "url": "https://example.com/news/1",
+                "published_at": "2026-05-14T10:00:00+08:00",
+                "scope": "stock",
+                "code": "300308.SZ",
+                "sentiment": "positive",
+                "importance": 4,
+                "raw_payload": {"source_item_id": "n-1"},
+            }
+        ]
+
+
+def test_collect_real_news_with_deepseek_summary(monkeypatch):
+    monkeypatch.setattr(
+        api_router,
+        "NewsCollector",
+        lambda: NewsCollector(
+            fetcher=FakeNewsFetcher(),
+            formatter=FakeNewsFormatter(),
+            source_ids=[("cls-telegraph", "财联社")],
+            sleep_fn=lambda _: None,
+        ),
+    )
+    monkeypatch.setattr(api_router, "AkshareCollector", lambda: AkshareCollector(FakeAkshare(), sleep_fn=lambda _: None))
+    with TestClient(app) as client:
+        client.post("/api/v1/collector/real/bootstrap")
+        response = client.post("/api/v1/collector/real/news?limit=5")
+        assert response.status_code == 200
+        assert response.json()["inserted"] == 1
+
+        news = client.get("/api/v1/news")
+        assert news.status_code == 200
+        body = news.json()
+        assert body["total"] == 1
+        item = body["items"][0]
+        assert item["title"] == "中际旭创CPO订单增长"
+        assert item["content"].startswith("DeepSeek整理正文")
+        assert item["url"] == "https://example.com/news/1"
+        assert item["source"] == "newsnow:财联社"
+        assert item["code"] == "300308.SZ"
+
+    with SessionLocal() as db:
+        row = db.query(CollectionJob).filter(CollectionJob.job_type == "news").order_by(CollectionJob.id.desc()).first()
+        assert row.source == "newsnow+deepseek"
+        assert row.status == "success"
