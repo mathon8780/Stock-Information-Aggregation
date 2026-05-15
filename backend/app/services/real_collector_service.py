@@ -212,13 +212,11 @@ class AkshareCollector:
         db.commit()
         return result
 
-    def collect_intraday(self, db: Session, trading_days: int = 10, period_minutes: int = 5) -> dict[str, Any]:
+    def collect_intraday(self, db: Session, trading_days: int = 10, period_minutes: int = 1) -> dict[str, Any]:
         if period_minutes not in {1, 5, 15, 30, 60}:
             raise ValueError("period_minutes must be one of 1, 5, 15, 30, 60")
         ensure_default_watchlist(db)
-        calendar_days = max(trading_days * 3, 20)
-        end_dt = datetime.combine(date.today(), wall_time(15, 0))
-        start_dt = datetime.combine(date.today() - timedelta(days=calendar_days), wall_time(9, 30))
+        start_dt, end_dt = _intraday_window(trading_days)
         items: list[dict[str, Any]] = []
         failed_items: list[dict[str, Any]] = []
 
@@ -257,6 +255,55 @@ class AkshareCollector:
         }
         summary = ingest_intraday_kline_payload(db, payload)
         summary["failed_items"] = failed_items
+        return summary
+
+    def collect_stock_intraday(self, db: Session, code: str, trading_days: int = 1, period_minutes: int = 1) -> dict[str, Any]:
+        if period_minutes not in {1, 5, 15, 30, 60}:
+            raise ValueError("period_minutes must be one of 1, 5, 15, 30, 60")
+        normalized_code = normalize_a_code(code)
+        stock = db.execute(select(Stock).where(Stock.code == normalized_code)).scalar_one_or_none()
+        if stock is None:
+            raise ValueError(f"stock {normalized_code} is not found")
+        target = {
+            "code": stock.code,
+            "name": stock.name,
+            "market": stock.market,
+            "security_type": stock.security_type,
+            "industry": stock.industry or "",
+        }
+        start_dt, end_dt = _intraday_window(trading_days)
+        try:
+            items = self._call_with_backoff(
+                lambda: self._intraday_rows_for_target(target, start_dt, end_dt, trading_days, period_minutes),
+                target["code"],
+            )
+        except Exception as exc:
+            record_collection_job(
+                db,
+                "intraday_kline",
+                "akshare",
+                "failed",
+                {"inserted": 0, "updated": 0, "failed": 1},
+                {"code": target["code"], "trading_days": trading_days, "period_minutes": period_minutes},
+                str(exc),
+            )
+            db.commit()
+            return {"inserted": 0, "updated": 0, "failed": 1, "failed_items": [{"code": target["code"], "name": target["name"], "error": str(exc)}]}
+
+        summary = ingest_intraday_kline_payload(
+            db,
+            {
+                "job_type": "intraday_kline",
+                "source": "akshare",
+                "fetched_at": datetime.now(timezone.utc).isoformat(),
+                "period_minutes": period_minutes,
+                "items": items,
+                "failed_items": [],
+            },
+        )
+        summary["code"] = target["code"]
+        summary["trading_days"] = trading_days
+        summary["period_minutes"] = period_minutes
         return summary
 
     def _build_stock_spot_items(self, now: datetime) -> list[dict[str, Any]]:
@@ -761,3 +808,12 @@ def _turnover_rate(row: dict[str, Any]) -> float | None:
     if value is not None and 0 < value <= 1:
         return value * 100
     return value
+
+
+def _intraday_window(trading_days: int) -> tuple[datetime, datetime]:
+    calendar_days = max(trading_days * 3, 20)
+    now = datetime.now().replace(tzinfo=None)
+    market_close = datetime.combine(date.today(), wall_time(15, 0))
+    end_dt = min(now, market_close)
+    start_dt = datetime.combine(date.today() - timedelta(days=calendar_days), wall_time(9, 30))
+    return start_dt, end_dt

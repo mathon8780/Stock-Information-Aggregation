@@ -7,7 +7,7 @@
 | OpenClaw 任务 | 脚本 | 后端动作 |
 | --- | --- | --- |
 | `market-data-fetcher` | `market-data-fetcher/run.py` | 调用 `/api/v1/collector/real/market` 采集全市场快照和关注股快照 |
-| `market-intraday-fetcher` | `market-intraday-fetcher/run.py` | 调用 `/api/v1/collector/real/intraday` 低频同步自选股 5 分钟 K |
+| `market-intraday-fetcher` | `market-intraday-fetcher/run.py` | 调用 `/api/v1/collector/real/intraday` 低频同步自选股 1 分钟 K |
 | `market-history-fetcher` | `market-history-fetcher/run.py` | 调用 `/api/v1/collector/real/history` 低频同步日 K |
 | `market-info-fetcher` | `market-info-fetcher/run.py` | 调用 `/api/v1/collector/real/news` 采集真实新闻并用配置的 LLM 整理 |
 | `market-analysis-trigger` | `market-analysis-trigger/run.py` | 触发自选股策略分析 |
@@ -19,7 +19,7 @@
 - `BACKEND_BASE_URL`：默认 `http://localhost:8000`。
 - `MARKET_SNAPSHOT_INTERVAL_SECONDS`：默认 `300`，只建议交易时段执行。
 - `ADVICE_INTERVAL_SECONDS`：默认 `900`，只建议交易时段执行。
-- `INTRADAY_INTERVAL_SECONDS`：默认 `86400`，避免高频抓取 5 分钟 K。
+- `INTRADAY_INTERVAL_SECONDS`：默认 `86400`，避免高频抓取 1 分钟 K。
 - `HISTORY_INTERVAL_SECONDS`：默认 `86400`，避免高频抓取历史日 K。
 - `NEWS_INTERVAL_SECONDS`：默认 `900`，控制新闻同步频率。
 - `NEWS_LLM_PROVIDER`：默认 `deepseek`。
@@ -42,4 +42,4 @@
 .\.venv\Scripts\python openclaw\local-scheduler\run.py
 ```
 
-该脚本会按 `common/scheduler.py` 中的任务表循环执行。全市场快照和策略分析默认限制在交易时段；日 K 和 5 分钟 K 默认一天一次，避免触发数据源风控。
+该脚本会按 `common/scheduler.py` 中的任务表循环执行。全市场快照和策略分析默认限制在交易时段；日 K 和 1 分钟 K 默认一天一次，避免触发数据源风控。

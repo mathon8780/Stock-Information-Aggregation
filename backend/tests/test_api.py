@@ -141,7 +141,7 @@ def test_trigger_analysis_for_real_watch_stock(monkeypatch):
         assert response.json()["signal"] in {"重点关注", "谨慎买入", "持有", "减仓", "回避"}
 
 
-def test_collect_and_query_watchlist_intraday_5m(monkeypatch):
+def test_collect_and_query_watchlist_intraday_1m(monkeypatch):
     monkeypatch.setattr(api_router, "AkshareCollector", lambda: AkshareCollector(FakeAkshare(), sleep_fn=lambda _: None))
     with TestClient(app) as client:
         client.post("/api/v1/collector/real/bootstrap")
@@ -150,13 +150,38 @@ def test_collect_and_query_watchlist_intraday_5m(monkeypatch):
         assert response.json()["inserted"] == 100
         assert response.json()["failed"] == 0
 
-        intraday = client.get("/api/v1/stocks/300308.SZ/intraday?period=5&days=10")
+        intraday = client.get("/api/v1/stocks/300308.SZ/intraday?period=1&days=10")
         assert intraday.status_code == 200
         body = intraday.json()
         assert body["total"] == 20
-        assert body["items"][0]["period_minutes"] == 5
+        assert body["items"][0]["period_minutes"] == 1
         assert body["items"][0]["bar_time"] == "2026-05-03T09:35:00"
         assert body["items"][-1]["bar_time"] == "2026-05-12T09:40:00"
+
+
+def test_collect_single_stock_intraday_for_detail_page(monkeypatch):
+    monkeypatch.setattr(api_router, "AkshareCollector", lambda: AkshareCollector(FakeAkshare(), sleep_fn=lambda _: None))
+    with TestClient(app) as client:
+        client.post("/api/v1/collector/real/bootstrap")
+        response = client.post("/api/v1/collector/real/intraday/300308.SZ?period=1&trading_days=1")
+        assert response.status_code == 200
+        body = response.json()
+        assert body["code"] == "300308.SZ"
+        assert body["period_minutes"] == 1
+        assert body["inserted"] + body["updated"] == 2
+
+        intraday = client.get("/api/v1/stocks/300308.SZ/intraday?period=1&days=1").json()
+        assert intraday["total"] == 2
+        assert intraday["items"][-1]["bar_time"] == "2026-05-12T09:40:00"
+
+        other = client.get("/api/v1/stocks/300502.SZ/intraday?period=1&days=1").json()
+        assert other["total"] == 0
+
+
+def test_intraday_query_limit_scales_for_one_minute_period():
+    assert api_router._intraday_query_limit(days=1, period_minutes=1) >= 240
+    assert api_router._intraday_query_limit(days=10, period_minutes=1) >= 2400
+    assert api_router._intraday_query_limit(days=10, period_minutes=5) >= 1200
 
 
 def test_collect_full_market_history_persists_all_spot_stocks(monkeypatch):

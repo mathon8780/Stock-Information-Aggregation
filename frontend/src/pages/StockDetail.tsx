@@ -1,9 +1,9 @@
 import { PlayCircleOutlined, ReloadOutlined, StarFilled, StarOutlined } from '@ant-design/icons';
-import { Button, Card, Col, Row, Segmented, Spin, message } from 'antd';
+import { Button, Card, Col, Row, Segmented, Space, Spin, Typography, message } from 'antd';
 import ReactECharts from 'echarts-for-react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { api } from '../api/client';
+import { api, formatTime } from '../api/client';
 import PageHeader from '../components/PageHeader';
 import RiskNotice from '../components/RiskNotice';
 import { createIntradayKlineOption, createKlineOption, createSnapshotOption } from '../features/stock-detail/charts/stockCharts';
@@ -17,6 +17,7 @@ import type { Advice, IntradayKline, Kline, NewsItem, Snapshot, Stock } from '..
 
 type StockDetailData = Stock & { latest_snapshot?: Snapshot | null; latest_advice?: Advice | null; is_watched: boolean };
 type KlineMode = 'daily' | 'intraday' | 'latest_intraday';
+const INTRADAY_REFRESH_MS = 60_000;
 
 export default function StockDetail() {
   const { code = '' } = useParams();
@@ -27,7 +28,10 @@ export default function StockDetail() {
   const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
   const [news, setNews] = useState<NewsItem[]>([]);
   const [history, setHistory] = useState<Advice[]>([]);
-  const [klineMode, setKlineMode] = useState<KlineMode>('daily');
+  const [klineMode, setKlineMode] = useState<KlineMode>('latest_intraday');
+  const [intradayRefreshing, setIntradayRefreshing] = useState(false);
+  const [lastIntradayRefresh, setLastIntradayRefresh] = useState<string | null>(null);
+  const intradayRefreshInFlight = useRef(false);
 
   const load = useCallback(async (showSpinner = true) => {
     if (!code) return;
@@ -36,7 +40,7 @@ export default function StockDetail() {
       const [stockRes, klineRes, intradayRes, snapshotRes, newsRes, historyRes] = await Promise.all([
         api.stock(code),
         api.kline(code, 90),
-        api.intraday(code, 5, 10),
+        api.intraday(code, 1, 10),
         api.stockSnapshots(code, 160),
         api.stockNews(code, 10),
         api.adviceHistory(code, 20),
@@ -54,7 +58,33 @@ export default function StockDetail() {
     }
   }, [code]);
 
+  const refreshIntraday = useCallback(async (showMessage = false) => {
+    if (!code || intradayRefreshInFlight.current) return;
+    intradayRefreshInFlight.current = true;
+    setIntradayRefreshing(true);
+    try {
+      await api.collectStockIntraday(code, 1, 1);
+      setLastIntradayRefresh(new Date().toISOString());
+      await load(false);
+      if (showMessage) message.success('分钟 K 已更新');
+    } catch (error) {
+      if (showMessage) message.error(error instanceof Error ? error.message : '分钟 K 更新失败');
+    } finally {
+      intradayRefreshInFlight.current = false;
+      setIntradayRefreshing(false);
+    }
+  }, [code, load]);
+
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    if (!stock?.is_watched || stock.code.toUpperCase() !== code.toUpperCase()) return undefined;
+    void refreshIntraday(false);
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === 'visible') void refreshIntraday(false);
+    }, INTRADAY_REFRESH_MS);
+    return () => window.clearInterval(timer);
+  }, [refreshIntraday, stock?.is_watched]);
+
   useBackendEvents(['market.updated', 'watchlist.updated', 'news.updated', 'advice.updated', 'kline.updated', 'intraday.updated'], () => load(false));
 
   const analyze = async () => {
@@ -92,6 +122,8 @@ export default function StockDetail() {
 
   const advice = history[0] ?? stock.latest_advice;
   const indicators = advice?.indicators ?? {};
+  const latestIntradayTime = latestIntraday.at(-1)?.bar_time || intraday.at(-1)?.bar_time;
+  const klineTitle = klineMode === 'daily' ? '历史日 K 与均线' : klineMode === 'intraday' ? '10 日 1 分钟 K 与均线' : '当前交易日 1 分钟 K 与均线';
 
   return (
     <>
@@ -102,7 +134,8 @@ export default function StockDetail() {
           <>
             <Button icon={stock.is_watched ? <StarFilled /> : <StarOutlined />} onClick={toggleWatch}>{stock.is_watched ? '取消关注' : '加入关注'}</Button>
             <Button icon={<PlayCircleOutlined />} type="primary" onClick={analyze}>触发分析</Button>
-            <Button icon={<ReloadOutlined />} onClick={() => load(true)}>刷新</Button>
+            <Button icon={<ReloadOutlined />} loading={intradayRefreshing} disabled={!stock.is_watched} onClick={() => refreshIntraday(true)}>更新分钟 K</Button>
+            <Button icon={<ReloadOutlined />} onClick={() => load(true)}>刷新页面</Button>
           </>
         )}
       />
@@ -115,18 +148,26 @@ export default function StockDetail() {
       <Row gutter={[16, 16]} className="section-gap">
         <Col xs={24} xl={15}>
           <Card
-            title={klineMode === 'daily' ? '历史日 K 与均线' : klineMode === 'intraday' ? '10 日 5 分钟 K 与均线' : '最近交易日 5 分钟 K 与均线'}
+            title={klineTitle}
             extra={(
-              <Segmented
-                size="small"
-                value={klineMode}
-                onChange={(value) => setKlineMode(value as KlineMode)}
-                options={[
-                  { label: '日 K', value: 'daily' },
-                  { label: '10日5分', value: 'intraday' },
-                  { label: '最近日5分', value: 'latest_intraday' },
-                ]}
-              />
+              <Space size={10} wrap>
+                {klineMode !== 'daily' ? (
+                  <Typography.Text className="muted">
+                    {latestIntradayTime ? `最新 ${formatTime(latestIntradayTime)}` : '暂无分钟 K'}
+                    {lastIntradayRefresh ? ` · 更新 ${formatTime(lastIntradayRefresh)}` : ''}
+                  </Typography.Text>
+                ) : null}
+                <Segmented
+                  size="small"
+                  value={klineMode}
+                  onChange={(value) => setKlineMode(value as KlineMode)}
+                  options={[
+                    { label: '当前1分', value: 'latest_intraday' },
+                    { label: '10日1分', value: 'intraday' },
+                    { label: '日 K', value: 'daily' },
+                  ]}
+                />
+              </Space>
             )}
           >
             <ReactECharts

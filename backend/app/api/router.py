@@ -144,13 +144,13 @@ def get_kline(code: str, limit: int = Query(90, ge=1, le=500), db: Session = Dep
 
 
 @router.get("/stocks/{code}/intraday")
-def get_intraday_kline(code: str, period: int = Query(5, ge=1, le=60), days: int = Query(10, ge=1, le=30), db: Session = Depends(get_db)) -> dict[str, Any]:
+def get_intraday_kline(code: str, period: int = Query(1, ge=1, le=60), days: int = Query(10, ge=1, le=30), db: Session = Depends(get_db)) -> dict[str, Any]:
     stock = _get_stock_or_404(db, code)
     rows_desc = db.execute(
         select(KlineIntraday)
         .where(KlineIntraday.stock_id == stock.id, KlineIntraday.period_minutes == period)
         .order_by(desc(KlineIntraday.bar_time))
-        .limit(days * 120)
+        .limit(_intraday_query_limit(days, period))
     ).scalars().all()
     keep_dates: list[Any] = []
     for row in rows_desc:
@@ -389,9 +389,18 @@ def collect_real_full_market_history(
 
 
 @router.post("/collector/real/intraday")
-def collect_real_intraday(trading_days: int = Query(10, ge=1, le=30), period: int = Query(5, ge=1, le=60), db: Session = Depends(get_db)) -> dict[str, Any]:
+def collect_real_intraday(trading_days: int = Query(10, ge=1, le=30), period: int = Query(1, ge=1, le=60), db: Session = Depends(get_db)) -> dict[str, Any]:
     try:
         return AkshareCollector().collect_intraday(db, trading_days=trading_days, period_minutes=period)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/collector/real/intraday/{code}")
+def collect_real_stock_intraday(code: str, trading_days: int = Query(1, ge=1, le=30), period: int = Query(1, ge=1, le=60), db: Session = Depends(get_db)) -> dict[str, Any]:
+    _get_stock_or_404(db, code)
+    try:
+        return AkshareCollector().collect_stock_intraday(db, code, trading_days=trading_days, period_minutes=period)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -439,6 +448,11 @@ def _latest_market_rows(db: Session) -> list[tuple[MarketSnapshot, Stock]]:
     subq = select(MarketSnapshot.stock_id, func.max(MarketSnapshot.snapshot_time).label("max_time")).group_by(MarketSnapshot.stock_id).subquery()
     stmt = select(MarketSnapshot, Stock).join(Stock, MarketSnapshot.stock_id == Stock.id).join(subq, and_(MarketSnapshot.stock_id == subq.c.stock_id, MarketSnapshot.snapshot_time == subq.c.max_time))
     return list(db.execute(stmt).all())
+
+
+def _intraday_query_limit(days: int, period_minutes: int) -> int:
+    bars_per_day = max(120, (300 // max(1, period_minutes)) + 20)
+    return days * bars_per_day
 
 
 def _market_sort_column(sort_by: str) -> Any:

@@ -195,7 +195,7 @@ def ingest_intraday_kline_payload(db: Session, payload: dict[str, Any]) -> dict[
     for item in items:
         stock = get_or_create_stock(db, item)
         bar_time = parse_datetime(item.get("bar_time")).replace(tzinfo=None)
-        period_minutes = int(item.get("period_minutes") or 5)
+        period_minutes = int(item.get("period_minutes") or 1)
         row = db.get(KlineIntraday, {"stock_id": stock.id, "period_minutes": period_minutes, "bar_time": bar_time})
         values = {
             "open": decimal_or_none(item.get("open")),
