@@ -8,7 +8,7 @@ from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app.models import Notification, Stock, Watchlist
+from app.models import News, Notification, Stock, Watchlist
 
 
 def create_notification(db: Session, notification_type: str, title: str, content: str, payload: dict[str, Any] | None = None, status: str = "pending") -> Notification:
@@ -37,16 +37,50 @@ def create_price_alert_if_needed(db: Session, stock: Stock, change_pct: Decimal 
     )
 
 
+def create_news_notification_if_needed(db: Session, news: News) -> Notification | None:
+    if not settings.qqbot_enable_news_digest or news.simplification_status != "simplified":
+        return None
+    recent = db.execute(select(Notification).where(Notification.notification_type == "news_digest").order_by(desc(Notification.created_at)).limit(300)).scalars().all()
+    if any((row.payload or {}).get("news_id") == news.id for row in recent):
+        return None
+    source_name = news.source.replace("newsnow:", "") if news.source else "新闻"
+    digest = (news.summary or news.content or news.original_title or news.title or "").strip()
+    if len(digest) > 240:
+        digest = f"{digest[:237]}..."
+    content = f"{digest}\n\n来源：{source_name}"
+    if news.published_at is not None:
+        content += f"\n时间：{news.published_at.isoformat()}"
+    if news.url:
+        content += f"\n原文：{news.url}"
+    return create_notification(
+        db,
+        "news_digest",
+        f"{source_name}：{news.title}",
+        content,
+        {
+            "news_id": news.id,
+            "source": news.source,
+            "url": news.url,
+            "published_at": news.published_at.isoformat() if news.published_at else None,
+            "simplified_at": news.simplified_at.isoformat() if news.simplified_at else None,
+        },
+    )
+
+
 def update_notification_result(db: Session, notification_id: int, status: str, sent_at: datetime | None = None, error_message: str | None = None) -> Notification:
     row = db.get(Notification, notification_id)
     if row is None:
         raise ValueError(f"Notification {notification_id} not found")
-    row.status = status
-    row.error_message = error_message
     if status == "sent":
+        row.status = "sent"
+        row.error_message = None
         row.sent_at = sent_at or datetime.now(timezone.utc)
     elif status == "failed":
         row.retry_count += 1
+        row.error_message = error_message
+        row.status = "failed" if row.retry_count >= settings.qqbot_max_retry else "pending"
+    else:
+        row.status = status
+        row.error_message = error_message
     db.flush()
     return row
-

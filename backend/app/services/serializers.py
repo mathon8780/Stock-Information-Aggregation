@@ -94,6 +94,7 @@ def news_dict(row: News, stock: Stock | None = None) -> dict[str, Any]:
         "stock_id": row.stock_id,
         "scope": row.scope,
         "title": row.title,
+        "original_title": row.original_title,
         "summary": row.summary,
         "content": row.content,
         "source": row.source,
@@ -102,6 +103,12 @@ def news_dict(row: News, stock: Stock | None = None) -> dict[str, Any]:
         "importance": row.importance,
         "published_at": scalar(row.published_at),
         "fetched_at": scalar(row.fetched_at),
+        "simplification_status": row.simplification_status,
+        "simplified_at": scalar(row.simplified_at),
+        "llm_provider": row.llm_provider,
+        "llm_model": row.llm_model,
+        "prompt_name": row.prompt_name,
+        "error_message": row.error_message,
     }
     if stock is not None:
         data["stock"] = stock_dict(stock)

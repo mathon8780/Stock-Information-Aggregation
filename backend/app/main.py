@@ -7,12 +7,17 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.router import router
 from app.database import init_db
+from app.services.news_auto_sync_service import start_news_auto_sync, stop_news_auto_sync
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
-    yield
+    start_news_auto_sync()
+    try:
+        yield
+    finally:
+        await stop_news_auto_sync()
 
 
 app = FastAPI(title="Market Agent API", description="Local A-share market monitor, alert and rule-based strategy API.", version="0.1.0", lifespan=lifespan)

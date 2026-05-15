@@ -14,6 +14,10 @@ backend/data/*.sqlite*
 backend/data/*.log
 data/*.db
 data/*.sqlite*
+data/*.log
+data/*.pid
+data/*.logpath
+data/*.errpath
 data/runtime/
 
 # Frontend

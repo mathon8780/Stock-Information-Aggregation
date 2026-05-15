@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 from app.config import settings
@@ -30,6 +30,28 @@ def init_db() -> None:
     from app.models import entities  # noqa: F401
 
     Base.metadata.create_all(bind=engine)
+    _upgrade_existing_schema()
+
+
+def _upgrade_existing_schema() -> None:
+    inspector = inspect(engine)
+    if "news" not in inspector.get_table_names():
+        return
+    existing = {column["name"] for column in inspector.get_columns("news")}
+    columns = {
+        "original_title": "VARCHAR(240)",
+        "simplification_status": "VARCHAR(16) NOT NULL DEFAULT 'pending'",
+        "simplified_at": "TIMESTAMPTZ",
+        "llm_provider": "VARCHAR(64)",
+        "llm_model": "VARCHAR(128)",
+        "prompt_name": "VARCHAR(64)",
+        "error_message": "TEXT",
+    }
+    with engine.begin() as connection:
+        for name, ddl_type in columns.items():
+            if name not in existing:
+                connection.execute(text(f"ALTER TABLE news ADD COLUMN {name} {ddl_type}"))
+        connection.execute(text("UPDATE news SET original_title = substr(title, 1, 240) WHERE original_title IS NULL OR original_title = ''"))
 
 
 def get_db():
@@ -38,4 +60,3 @@ def get_db():
         yield db
     finally:
         db.close()
-

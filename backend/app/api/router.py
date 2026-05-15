@@ -1,19 +1,25 @@
 from __future__ import annotations
 
+import asyncio
+import json
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import StreamingResponse
 from sqlalchemy import and_, desc, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.database import get_db
 from app.models import CollectionJob, KlineDaily, KlineIntraday, MarketSnapshot, News, Notification, Stock, TradingAdvice, WatchSnapshot, Watchlist
-from app.schemas import AddWatchRequest, NotificationResultRequest, UpdateWatchRequest
+from app.schemas import AddWatchRequest, NewsLlmConfigRequest, NotificationResultRequest, UpdateWatchRequest
 from app.services.analysis_service import DISCLAIMER, analyze_stock, analyze_watchlist
+from app.services.event_bus import publish_event, subscribe, unsubscribe
 from app.services.ingest_service import ingest_kline_payload, ingest_market_payload, ingest_news_payload, normalize_code
+from app.services.news_auto_sync_service import trigger_news_simplification
+from app.services.news_llm_config_service import news_llm_config_dict, save_news_llm_config
 from app.services.news_collector_service import NewsCollector
 from app.services.notification_service import update_notification_result
 from app.services.real_collector_service import AkshareCollector, DEFAULT_WATCHLIST
@@ -28,27 +34,86 @@ def health() -> dict[str, Any]:
     return {"status": "ok", "time": datetime.now(timezone.utc).isoformat(), "env": settings.app_env}
 
 
+@router.get("/events")
+async def events(request: Request) -> StreamingResponse:
+    async def stream():
+        subscriber = subscribe()
+        try:
+            yield _sse({"type": "connected", "payload": {}, "timestamp": datetime.now(timezone.utc).isoformat()})
+            while not await request.is_disconnected():
+                try:
+                    event = await asyncio.wait_for(subscriber.queue.get(), timeout=25)
+                except asyncio.TimeoutError:
+                    yield ": keepalive\n\n"
+                    continue
+                yield _sse(event)
+        finally:
+            unsubscribe(subscriber.id)
+
+    return StreamingResponse(
+        stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
+    )
+
+
+def _sse(event: dict[str, Any]) -> str:
+    return f"event: {event.get('type', 'message')}\ndata: {json.dumps(event, ensure_ascii=False)}\n\n"
+
+
 @router.get("/settings")
-def get_settings() -> dict[str, Any]:
+def get_settings(db: Session = Depends(get_db)) -> dict[str, Any]:
+    news_config = news_llm_config_dict(db)
     return {
         "app_env": settings.app_env,
         "database": "sqlite" if settings.database_url.startswith("sqlite") else "postgresql",
         "auto_seed_demo_data": settings.auto_seed_demo_data,
         "market_data_primary": settings.market_data_primary,
         "default_watchlist": DEFAULT_WATCHLIST,
-        "collector_intervals": {"market_snapshot_seconds": settings.market_snapshot_interval_seconds, "watch_snapshot_seconds": settings.watch_snapshot_interval_seconds, "news_seconds": settings.news_interval_seconds, "advice_seconds": settings.advice_interval_seconds},
+        "collector_intervals": {"market_snapshot_seconds": settings.market_snapshot_interval_seconds, "watch_snapshot_seconds": settings.watch_snapshot_interval_seconds, "news_seconds": settings.news_interval_seconds, "news_auto_sync_seconds": settings.news_auto_sync_interval_seconds, "advice_seconds": settings.advice_interval_seconds},
         "risk_control": {"request_min_interval_seconds": settings.request_min_interval_seconds, "fetch_failure_downgrade_threshold": settings.fetch_failure_downgrade_threshold, "max_watchlist_size": settings.max_watchlist_size},
         "news": {
             "source": "newsnow",
-            "llm_provider": settings.news_llm_provider,
-            "api_base_url": settings.news_llm_api_base_url,
-            "api_key_configured": bool(settings.news_llm_api_key),
-            "model": settings.news_llm_model,
+            "llm_provider": news_config["provider"],
+            "api_base_url": news_config["api_base_url"],
+            "api_key_configured": news_config["api_key_configured"],
+            "model": news_config["model"],
+            "prompt_preset": news_config["prompt_preset"],
+            "custom_prompt_configured": news_config["custom_prompt_configured"],
+            "auto_sync_enabled": settings.news_auto_sync_enabled,
+            "auto_sync_interval_seconds": settings.news_auto_sync_interval_seconds,
+            "llm_timeout_seconds": settings.news_llm_timeout_seconds,
+            "llm_max_concurrency": settings.news_llm_max_concurrency,
         },
-        "qqbot": {"target": settings.qqbot_target, "price_alert": settings.qqbot_enable_price_alert, "strategy_alert": settings.qqbot_enable_strategy_alert, "daily_summary": settings.qqbot_enable_daily_summary, "job_failed_alert": settings.qqbot_enable_job_failed_alert},
+        "qqbot": {
+            "target": settings.qqbot_target,
+            "webhook_configured": bool(settings.qqbot_webhook_url),
+            "price_alert": settings.qqbot_enable_price_alert,
+            "strategy_alert": settings.qqbot_enable_strategy_alert,
+            "news_digest": settings.qqbot_enable_news_digest,
+            "daily_summary": settings.qqbot_enable_daily_summary,
+            "job_failed_alert": settings.qqbot_enable_job_failed_alert,
+            "batch_size": settings.qqbot_batch_size,
+            "max_retry": settings.qqbot_max_retry,
+        },
         "analysis_engine": settings.analysis_engine,
         "disclaimer": DISCLAIMER,
     }
+
+
+@router.get("/news-llm-config")
+def get_news_llm_config(db: Session = Depends(get_db)) -> dict[str, Any]:
+    return news_llm_config_dict(db)
+
+
+@router.put("/news-llm-config")
+def update_news_llm_config(request: NewsLlmConfigRequest, db: Session = Depends(get_db)) -> dict[str, Any]:
+    save_news_llm_config(db, request.model_dump())
+    config = news_llm_config_dict(db)
+    publish_event("settings.updated", {"section": "news_llm_config"})
+    if config["api_key_configured"]:
+        config["simplification_triggered"] = trigger_news_simplification()
+    return config
 
 
 @router.get("/stocks")
@@ -160,6 +225,11 @@ def list_news(code: str | None = None, scope: str | None = None, sentiment: str 
     return {"items": [news_dict(news, stock) for news, stock in rows], "total": len(rows)}
 
 
+@router.post("/news/simplify-pending")
+def simplify_pending_news(limit: int = Query(30, ge=1, le=100), db: Session = Depends(get_db)) -> dict[str, Any]:
+    return NewsCollector().simplify_pending(db, limit=limit)
+
+
 @router.get("/news/{news_id}")
 def get_news(news_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
     row = db.execute(select(News, Stock).join(Stock, News.stock_id == Stock.id, isouter=True).where(News.id == news_id)).one_or_none()
@@ -238,6 +308,7 @@ def add_watch(request: AddWatchRequest, db: Session = Depends(get_db)) -> dict[s
         return {"status": "exists", "item": stock_dict(stock)}
     db.add(Watchlist(stock_id=stock.id, display_order=current_count + 1, alert_enabled=request.alert_enabled, alert_threshold_pct=Decimal(str(request.alert_threshold_pct)), strategy_push_enabled=request.strategy_push_enabled))
     db.commit()
+    publish_event("watchlist.updated", {"code": stock.code, "action": "created"})
     return {"status": "created", "item": stock_dict(stock)}
 
 
@@ -250,6 +321,7 @@ def update_watch(code: str, request: UpdateWatchRequest, db: Session = Depends(g
     for field, value in request.model_dump(exclude_unset=True).items():
         setattr(row, field, Decimal(str(value)) if field == "alert_threshold_pct" and value is not None else value)
     db.commit()
+    publish_event("watchlist.updated", {"code": stock.code, "action": "updated"})
     return {"status": "updated", "item": stock_dict(stock)}
 
 
@@ -261,6 +333,7 @@ def delete_watch(code: str, db: Session = Depends(get_db)) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail="Watchlist item not found")
     db.delete(row)
     db.commit()
+    publish_event("watchlist.updated", {"code": stock.code, "action": "deleted"})
     return {"status": "deleted", "code": stock.code}
 
 
@@ -286,6 +359,7 @@ def ingest_notification_result(request: NotificationResultRequest, db: Session =
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     db.commit()
+    publish_event("notifications.updated", {"notification_id": row.id, "status": row.status})
     return notification_dict(row)
 
 
@@ -302,6 +376,16 @@ def collect_real_market(db: Session = Depends(get_db)) -> dict[str, Any]:
 @router.post("/collector/real/history")
 def collect_real_history(db: Session = Depends(get_db)) -> dict[str, Any]:
     return AkshareCollector().collect_history(db)
+
+
+@router.post("/collector/real/full-market-history")
+def collect_real_full_market_history(
+    days: int = Query(365, ge=1, le=3650),
+    batch_size: int = Query(30, ge=1, le=200),
+    limit: int | None = Query(None, ge=1, le=10000),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    return AkshareCollector().collect_full_market_history(db, days=days, batch_size=batch_size, limit=limit)
 
 
 @router.post("/collector/real/intraday")

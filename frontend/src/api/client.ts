@@ -1,4 +1,4 @@
-import type { Advice, CollectionJob, IntradayKline, Kline, NewsItem, NotificationItem, Paged, Snapshot, Stock, WatchItem } from '../types';
+import type { Advice, CollectionJob, IntradayKline, Kline, NewsItem, NewsLlmConfig, NewsLlmConfigPayload, NotificationItem, Paged, Snapshot, Stock, WatchItem } from '../types';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000/api/v1';
 
@@ -10,6 +10,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   settings: () => request<Record<string, any>>('/settings'),
+  newsLlmConfig: () => request<NewsLlmConfig>('/news-llm-config'),
+  updateNewsLlmConfig: (payload: NewsLlmConfigPayload) => request<NewsLlmConfig>('/news-llm-config', { method: 'PUT', body: JSON.stringify(payload) }),
   stock: (code: string) => request<Stock & { latest_snapshot?: Snapshot | null; latest_advice?: Advice | null; is_watched: boolean }>(`/stocks/${code}`),
   kline: (code: string, limit = 90) => request<Paged<Kline>>(`/stocks/${code}/kline?limit=${limit}`),
   intraday: (code: string, period = 5, days = 10) => request<Paged<IntradayKline>>(`/stocks/${code}/intraday?period=${period}&days=${days}`),
@@ -29,9 +31,14 @@ export const api = {
   collectHistory: () => request('/collector/real/history', { method: 'POST' }),
   collectIntraday: () => request('/collector/real/intraday', { method: 'POST' }),
   collectNews: () => request('/collector/real/news', { method: 'POST' }),
+  simplifyPendingNews: (limit = 30) => request(`/news/simplify-pending?limit=${limit}`, { method: 'POST' }),
   jobs: (limit = 50) => request<Paged<CollectionJob>>(`/collection-jobs?limit=${limit}`),
   notifications: (status?: string) => request<Paged<NotificationItem>>(`/notifications?limit=100${status ? `&status=${status}` : ''}`),
 };
+
+export function eventsUrl(): string {
+  return `${API_BASE_URL}/events`;
+}
 
 export function formatNumber(value?: number | null, digits = 2): string {
   if (value === null || value === undefined || Number.isNaN(value)) return '-';

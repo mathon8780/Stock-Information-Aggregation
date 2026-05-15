@@ -38,7 +38,9 @@ Invoke-RestMethod -Method Post http://127.0.0.1:8000/api/v1/collector/real/news
 NEWS_LLM_PROVIDER=deepseek
 NEWS_LLM_API_KEY=your_key_here
 NEWS_LLM_API_BASE_URL=https://api.deepseek.com
-NEWS_LLM_MODEL=deepseek-chat
+NEWS_LLM_MODEL=deepseek-v4-flash
+NEWS_LLM_TIMEOUT_SECONDS=40
+NEWS_LLM_MAX_CONCURRENCY=50
 ```
 
 前端：

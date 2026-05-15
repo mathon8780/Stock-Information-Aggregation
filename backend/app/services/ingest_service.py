@@ -9,8 +9,16 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import CollectionJob, KlineDaily, KlineIntraday, MarketSnapshot, News, Stock, WatchSnapshot
+from app.services.event_bus import publish_event
 from app.services.notification_service import create_price_alert_if_needed
 from app.services.sentiment_service import classify_sentiment, estimate_importance
+
+
+NEWS_ORIGINAL_TITLE_MAX_LENGTH = 240
+
+
+def truncate_news_original_title(value: Any) -> str:
+    return str(value or "").strip()[:NEWS_ORIGINAL_TITLE_MAX_LENGTH]
 
 
 def normalize_code(code: str) -> str:
@@ -137,6 +145,11 @@ def ingest_market_payload(db: Session, payload: dict[str, Any], watch_only: bool
     summary = {"inserted_market": inserted_market, "inserted_watch": inserted_watch, "skipped": skipped, "failed": len(payload.get("failed_items") or [])}
     _record_job(db, payload.get("job_type", "market_snapshot"), source, "success", summary, {"count": len(items)})
     db.commit()
+    publish_event("market.updated", summary)
+    if inserted_watch:
+        publish_event("watchlist.updated", summary)
+    publish_event("notifications.updated", {"source": "market"})
+    publish_event("jobs.updated", {"job_type": payload.get("job_type", "market_snapshot")})
     return summary
 
 
@@ -170,6 +183,8 @@ def ingest_kline_payload(db: Session, payload: dict[str, Any]) -> dict[str, Any]
     summary = {"inserted": inserted, "updated": updated, "failed": len(payload.get("failed_items") or [])}
     _record_job(db, payload.get("job_type", "daily_kline"), source, "success", summary, {"count": len(items)})
     db.commit()
+    publish_event("kline.updated", summary)
+    publish_event("jobs.updated", {"job_type": payload.get("job_type", "daily_kline")})
     return summary
 
 
@@ -205,6 +220,8 @@ def ingest_intraday_kline_payload(db: Session, payload: dict[str, Any]) -> dict[
     summary = {"inserted": inserted, "updated": updated, "failed": len(payload.get("failed_items") or [])}
     _record_job(db, payload.get("job_type", "intraday_kline"), source, "success", summary, {"count": len(items), "period_minutes": payload.get("period_minutes")})
     db.commit()
+    publish_event("intraday.updated", summary)
+    publish_event("jobs.updated", {"job_type": payload.get("job_type", "intraday_kline")})
     return summary
 
 
@@ -217,6 +234,8 @@ def ingest_news_payload(db: Session, payload: dict[str, Any]) -> dict[str, Any]:
         stock = get_or_create_stock(db, item) if item.get("code") else None
         title = str(item.get("title") or "").strip()
         summary_text = str(item.get("summary") or "").strip()
+        raw_payload = item.get("raw_payload") if isinstance(item.get("raw_payload"), dict) else {}
+        original_title = truncate_news_original_title(item.get("original_title") or raw_payload.get("original_title") or title)
         digest = item.get("content_hash") or item.get("idempotency_key") or content_hash(item.get("url"), title, summary_text)
         if db.execute(select(News).where(News.content_hash == digest)).scalar_one_or_none() is not None:
             skipped += 1
@@ -227,6 +246,7 @@ def ingest_news_payload(db: Session, payload: dict[str, Any]) -> dict[str, Any]:
                 stock_id=stock.id if stock is not None else None,
                 scope=str(item.get("scope") or ("stock" if stock is not None else "market")),
                 title=title,
+                original_title=original_title,
                 summary=summary_text,
                 content=item.get("content"),
                 source=str(item.get("source") or source),
@@ -237,10 +257,18 @@ def ingest_news_payload(db: Session, payload: dict[str, Any]) -> dict[str, Any]:
                 published_at=parse_datetime(item.get("published_at")) if item.get("published_at") else fetched_at,
                 fetched_at=fetched_at,
                 raw_payload=item,
+                simplification_status=str(item.get("simplification_status") or ("simplified" if item.get("content") else "pending")),
+                simplified_at=parse_datetime(item.get("simplified_at")) if item.get("simplified_at") else None,
+                llm_provider=item.get("llm_provider"),
+                llm_model=item.get("llm_model"),
+                prompt_name=item.get("prompt_name"),
+                error_message=item.get("error_message"),
             )
         )
         inserted += 1
     summary = {"inserted": inserted, "skipped": skipped, "failed": len(payload.get("failed_items") or [])}
     _record_job(db, payload.get("job_type", "news"), source, "success", summary, {"count": len(items)})
     db.commit()
+    publish_event("news.updated", summary)
+    publish_event("jobs.updated", {"job_type": payload.get("job_type", "news")})
     return summary

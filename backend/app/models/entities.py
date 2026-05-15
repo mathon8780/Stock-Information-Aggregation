@@ -142,12 +142,14 @@ class News(Base):
     __table_args__ = (
         UniqueConstraint("content_hash", name="uq_news_content_hash"),
         CheckConstraint("scope in ('market', 'stock', 'security')", name="ck_news_scope"),
+        CheckConstraint("simplification_status in ('pending', 'simplified', 'failed')", name="ck_news_simplification_status"),
     )
 
     id: Mapped[int] = mapped_column(PK_TYPE, primary_key=True, autoincrement=True)
     stock_id: Mapped[int | None] = mapped_column(ForeignKey("stocks.id"), index=True)
     scope: Mapped[str] = mapped_column(String(16), index=True, nullable=False)
     title: Mapped[str] = mapped_column(Text, nullable=False)
+    original_title: Mapped[str | None] = mapped_column(String(240))
     summary: Mapped[str | None] = mapped_column(Text)
     content: Mapped[str | None] = mapped_column(Text)
     source: Mapped[str] = mapped_column(String(128), default="manual", nullable=False)
@@ -158,8 +160,27 @@ class News(Base):
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
     fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
     raw_payload: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    simplification_status: Mapped[str] = mapped_column(String(16), default="pending", index=True, nullable=False)
+    simplified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    llm_provider: Mapped[str | None] = mapped_column(String(64))
+    llm_model: Mapped[str | None] = mapped_column(String(128))
+    prompt_name: Mapped[str | None] = mapped_column(String(64))
+    error_message: Mapped[str | None] = mapped_column(Text)
 
     stock: Mapped[Stock | None] = relationship(back_populates="news")
+
+
+class NewsLlmConfig(Base):
+    __tablename__ = "news_llm_config"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    provider: Mapped[str] = mapped_column(String(64), default="deepseek", nullable=False)
+    api_base_url: Mapped[str] = mapped_column(Text, default="https://api.deepseek.com", nullable=False)
+    model: Mapped[str] = mapped_column(String(128), default="deepseek-v4-flash", nullable=False)
+    api_key: Mapped[str | None] = mapped_column(Text)
+    prompt_preset: Mapped[str] = mapped_column(String(64), default="default", nullable=False)
+    custom_prompt: Mapped[str | None] = mapped_column(Text)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
 
 
 class TradingAdvice(Base):

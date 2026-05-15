@@ -26,3 +26,13 @@ class NotificationResultRequest(BaseModel):
     sent_at: datetime | None = None
     error_message: str | None = None
     payload: dict[str, Any] | None = None
+
+
+class NewsLlmConfigRequest(BaseModel):
+    provider: str = Field("deepseek", min_length=1, max_length=64)
+    api_base_url: str = Field("https://api.deepseek.com", min_length=1)
+    model: str = Field("deepseek-v4-flash", min_length=1, max_length=128)
+    api_key: str | None = None
+    clear_api_key: bool = False
+    prompt_preset: str = Field("default", min_length=1, max_length=64)
+    custom_prompt: str | None = None

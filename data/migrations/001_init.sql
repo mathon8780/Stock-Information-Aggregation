@@ -96,6 +96,7 @@ CREATE TABLE IF NOT EXISTS news (
   stock_id BIGINT REFERENCES stocks(id),
   scope VARCHAR(16) NOT NULL CHECK (scope IN ('market', 'stock', 'security')),
   title TEXT NOT NULL,
+  original_title VARCHAR(240),
   summary TEXT,
   content TEXT,
   source VARCHAR(128) NOT NULL,
@@ -105,7 +106,24 @@ CREATE TABLE IF NOT EXISTS news (
   importance INTEGER NOT NULL DEFAULT 3,
   published_at TIMESTAMPTZ,
   fetched_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  raw_payload JSONB
+  raw_payload JSONB,
+  simplification_status VARCHAR(16) NOT NULL DEFAULT 'pending' CHECK (simplification_status IN ('pending', 'simplified', 'failed')),
+  simplified_at TIMESTAMPTZ,
+  llm_provider VARCHAR(64),
+  llm_model VARCHAR(128),
+  prompt_name VARCHAR(64),
+  error_message TEXT
+);
+
+CREATE TABLE IF NOT EXISTS news_llm_config (
+  id INTEGER PRIMARY KEY DEFAULT 1,
+  provider VARCHAR(64) NOT NULL DEFAULT 'deepseek',
+  api_base_url TEXT NOT NULL DEFAULT 'https://api.deepseek.com',
+  model VARCHAR(128) NOT NULL DEFAULT 'deepseek-v4-flash',
+  api_key TEXT,
+  prompt_preset VARCHAR(64) NOT NULL DEFAULT 'default',
+  custom_prompt TEXT,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE TABLE IF NOT EXISTS trading_advice (

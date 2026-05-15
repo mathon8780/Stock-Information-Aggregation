@@ -1,11 +1,12 @@
 import { ReloadOutlined } from '@ant-design/icons';
 import { Button, Card, Table, message } from 'antd';
 import type { TablePaginationConfig } from 'antd/es/table';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '../api/client';
 import PageHeader from '../components/PageHeader';
 import MarketToolbar from '../features/market/components/MarketToolbar';
 import { createMarketColumns } from '../features/market/tables/marketColumns';
+import { useBackendEvents } from '../hooks/useBackendEvents';
 import type { Snapshot } from '../types';
 
 type MarketCacheEntry = {
@@ -31,16 +32,17 @@ export default function Market() {
   const [total, setTotal] = useState(initialCache?.total ?? 0);
   const [watchCodes, setWatchCodes] = useState<Set<string>>(initialCache?.watchCodes ?? new Set());
 
-  const load = async (nextPage = page, showSpinner?: boolean) => {
+  const load = useCallback(async (nextPage = page, showSpinner?: boolean) => {
     const key = cacheKey(nextPage, q, market);
     const cached = marketCache.get(key);
+    const shouldShowSpinner = showSpinner ?? !cached;
     if (cached) {
       setItems(cached.items);
       setTotal(cached.total);
       setPage(cached.page);
       setWatchCodes(cached.watchCodes);
     }
-    setLoading(showSpinner ?? !cached);
+    setLoading(shouldShowSpinner);
     try {
       const params = new URLSearchParams({ page: String(nextPage), page_size: '20', sort_by: 'change_pct', sort_order: 'desc' });
       if (q.trim()) params.set('q', q.trim());
@@ -53,13 +55,14 @@ export default function Market() {
       setWatchCodes(nextWatchCodes);
       marketCache.set(key, { items: marketRes.items, total: marketRes.total, page: nextPage, watchCodes: nextWatchCodes });
     } catch (error) {
-      message.error(error instanceof Error ? error.message : '加载失败');
+      if (shouldShowSpinner) message.error(error instanceof Error ? error.message : '加载失败');
     } finally {
       setLoading(false);
     }
-  };
+  }, [market, page, q]);
 
   useEffect(() => { void load(1); }, []);
+  useBackendEvents(['market.updated', 'watchlist.updated'], () => load(page, false));
 
   const addWatch = async (code: string) => {
     try {

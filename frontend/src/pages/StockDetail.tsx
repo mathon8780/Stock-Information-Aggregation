@@ -1,7 +1,7 @@
 import { PlayCircleOutlined, ReloadOutlined, StarFilled, StarOutlined } from '@ant-design/icons';
 import { Button, Card, Col, Row, Segmented, Spin, message } from 'antd';
 import ReactECharts from 'echarts-for-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { api } from '../api/client';
 import PageHeader from '../components/PageHeader';
@@ -12,6 +12,7 @@ import QuoteOverview from '../features/stock-detail/components/QuoteOverview';
 import RelatedNews from '../features/stock-detail/components/RelatedNews';
 import StrategySummary from '../features/stock-detail/components/StrategySummary';
 import TechnicalIndicators from '../features/stock-detail/components/TechnicalIndicators';
+import { useBackendEvents } from '../hooks/useBackendEvents';
 import type { Advice, IntradayKline, Kline, NewsItem, Snapshot, Stock } from '../types';
 
 type StockDetailData = Stock & { latest_snapshot?: Snapshot | null; latest_advice?: Advice | null; is_watched: boolean };
@@ -28,9 +29,9 @@ export default function StockDetail() {
   const [history, setHistory] = useState<Advice[]>([]);
   const [klineMode, setKlineMode] = useState<KlineMode>('daily');
 
-  const load = async () => {
+  const load = useCallback(async (showSpinner = true) => {
     if (!code) return;
-    setLoading(true);
+    if (showSpinner) setLoading(true);
     try {
       const [stockRes, klineRes, intradayRes, snapshotRes, newsRes, historyRes] = await Promise.all([
         api.stock(code),
@@ -47,19 +48,20 @@ export default function StockDetail() {
       setNews(newsRes.items);
       setHistory(historyRes.items);
     } catch (error) {
-      message.error(error instanceof Error ? error.message : '加载失败');
+      if (showSpinner) message.error(error instanceof Error ? error.message : '加载失败');
     } finally {
-      setLoading(false);
+      if (showSpinner) setLoading(false);
     }
-  };
+  }, [code]);
 
-  useEffect(() => { void load(); }, [code]);
+  useEffect(() => { void load(); }, [load]);
+  useBackendEvents(['market.updated', 'watchlist.updated', 'news.updated', 'advice.updated', 'kline.updated', 'intraday.updated'], () => load(false));
 
   const analyze = async () => {
     try {
       await api.analyze(code);
       message.success('分析完成');
-      await load();
+      await load(true);
     } catch (error) {
       message.error(error instanceof Error ? error.message : '分析失败');
     }
@@ -70,7 +72,7 @@ export default function StockDetail() {
     try {
       stock.is_watched ? await api.removeWatch(stock.code) : await api.addWatch(stock.code);
       message.success(stock.is_watched ? '已移出自选股' : '已加入自选股');
-      await load();
+      await load(true);
     } catch (error) {
       message.error(error instanceof Error ? error.message : '操作失败');
     }
@@ -100,7 +102,7 @@ export default function StockDetail() {
           <>
             <Button icon={stock.is_watched ? <StarFilled /> : <StarOutlined />} onClick={toggleWatch}>{stock.is_watched ? '取消关注' : '加入关注'}</Button>
             <Button icon={<PlayCircleOutlined />} type="primary" onClick={analyze}>触发分析</Button>
-            <Button icon={<ReloadOutlined />} onClick={load}>刷新</Button>
+            <Button icon={<ReloadOutlined />} onClick={() => load(true)}>刷新</Button>
           </>
         )}
       />

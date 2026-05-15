@@ -1,4 +1,3 @@
-from app.schemas.requests import AddWatchRequest, NotificationResultRequest, UpdateWatchRequest
+from app.schemas.requests import AddWatchRequest, NewsLlmConfigRequest, NotificationResultRequest, UpdateWatchRequest
 
-__all__ = ["AddWatchRequest", "NotificationResultRequest", "UpdateWatchRequest"]
-
+__all__ = ["AddWatchRequest", "NewsLlmConfigRequest", "NotificationResultRequest", "UpdateWatchRequest"]

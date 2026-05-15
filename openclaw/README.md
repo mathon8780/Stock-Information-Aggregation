@@ -25,8 +25,14 @@
 - `NEWS_LLM_PROVIDER`：默认 `deepseek`。
 - `NEWS_LLM_API_KEY`：新闻整理 LLM API Key，必需。
 - `NEWS_LLM_API_BASE_URL`：默认 `https://api.deepseek.com`。
-- `NEWS_LLM_MODEL`：默认 `deepseek-chat`。
+- `NEWS_LLM_MODEL`：默认 `deepseek-v4-flash`。
+- `NEWS_LLM_TIMEOUT_SECONDS`：新闻简化 LLM 请求超时，默认 `40`。
+- `NEWS_LLM_MAX_CONCURRENCY`：新闻简化并发上限，默认 `50`，代码会硬性限制最高 50。
 - `QQBOT_DRY_RUN`：默认 `true`，只在控制台打印并将通知标记为 sent。
+- `QQBOT_WEBHOOK_URL`：`QQBOT_DRY_RUN=false` 时必填，publisher 会向该地址 POST 通知 JSON。
+- `QQBOT_BATCH_SIZE`：每轮最多推送通知数，默认 `10`。
+- `QQBOT_MAX_RETRY`：通知失败后最多重试次数，默认 `3`。
+- `QQBOT_ENABLE_NEWS_DIGEST`：是否为 LLM 简化后的新闻生成 QQBot 通知，默认 `true`。
 
 ## 本地调度
 

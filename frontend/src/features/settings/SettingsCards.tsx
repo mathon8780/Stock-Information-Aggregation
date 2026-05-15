@@ -14,6 +14,7 @@ export default function SettingsCards({ settings }: { settings: Record<string, a
           <Descriptions.Item label="新闻整理">{settings?.news?.llm_provider} / {settings?.news?.model}</Descriptions.Item>
           <Descriptions.Item label="LLM 地址">{settings?.news?.api_base_url}</Descriptions.Item>
           <Descriptions.Item label="新闻 Key">{settings?.news?.api_key_configured ? '已配置' : '未配置'}</Descriptions.Item>
+          <Descriptions.Item label="Prompt">{settings?.news?.custom_prompt_configured ? '自定义' : settings?.news?.prompt_preset}</Descriptions.Item>
         </Descriptions>
       </Card>
       <Card title={<Space><FileSearchOutlined />采集间隔</Space>}>
@@ -21,6 +22,7 @@ export default function SettingsCards({ settings }: { settings: Record<string, a
           <Descriptions.Item label="全市场">{settings?.collector_intervals?.market_snapshot_seconds}s</Descriptions.Item>
           <Descriptions.Item label="关注股">{settings?.collector_intervals?.watch_snapshot_seconds}s</Descriptions.Item>
           <Descriptions.Item label="资讯">{settings?.collector_intervals?.news_seconds}s</Descriptions.Item>
+          <Descriptions.Item label="自动资讯">{settings?.news?.auto_sync_enabled ? `${settings?.news?.auto_sync_interval_seconds}s` : '关闭'}</Descriptions.Item>
           <Descriptions.Item label="策略">{settings?.collector_intervals?.advice_seconds}s</Descriptions.Item>
         </Descriptions>
       </Card>

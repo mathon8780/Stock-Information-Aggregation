@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from app.analysis import calculate_indicators
 from app.config import settings
 from app.models import KlineDaily, MarketSnapshot, News, Stock, TradingAdvice, Watchlist
+from app.services.event_bus import publish_event
 from app.services.ingest_service import normalize_code
 from app.services.notification_service import create_notification
 
@@ -194,6 +195,9 @@ def analyze_stock(db: Session, code: str) -> TradingAdvice:
     if settings.qqbot_enable_strategy_alert and watch is not None and watch.strategy_push_enabled and previous is not None and previous.signal != advice.signal:
         create_notification(db, "strategy_change", f"{stock.name} 策略变化", f"{stock.code} 策略由 {previous.signal} 变为 {advice.signal}，置信度 {float(advice.confidence):.0f}%。", {"code": stock.code, "old_signal": previous.signal, "new_signal": advice.signal, "confidence": float(advice.confidence)})
     db.commit()
+    publish_event("advice.updated", {"code": stock.code})
+    if settings.qqbot_enable_strategy_alert:
+        publish_event("notifications.updated", {"source": "strategy_change"})
     db.refresh(advice)
     return advice
 
@@ -204,4 +208,3 @@ def analyze_watchlist(db: Session) -> list[TradingAdvice]:
     for item in rows:
         result.append(analyze_stock(db, item.stock.code))
     return result
-

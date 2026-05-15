@@ -72,7 +72,7 @@ def default_tasks() -> list[ScheduledTask]:
         ScheduledTask(
             name="market-info-fetcher",
             endpoint="/api/v1/collector/real/news",
-            interval_seconds=_env_int("NEWS_INTERVAL_SECONDS", 900),
+            interval_seconds=_env_int("NEWS_AUTO_SYNC_INTERVAL_SECONDS", _env_int("NEWS_INTERVAL_SECONDS", 60)),
             description="refresh real news through NewsNow and DeepSeek",
         ),
     ]

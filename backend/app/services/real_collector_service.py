@@ -141,6 +141,77 @@ class AkshareCollector:
         summary["failed_items"] = failed_items
         return summary
 
+    def collect_full_market_history(
+        self,
+        db: Session,
+        days: int = 365,
+        batch_size: int = 30,
+        limit: int | None = None,
+    ) -> dict[str, Any]:
+        end = date.today()
+        start = end - timedelta(days=days)
+        targets = self._full_market_stock_targets()
+        if limit is not None:
+            targets = targets[:limit]
+
+        result: dict[str, Any] = {
+            "total_targets": len(targets),
+            "processed": 0,
+            "inserted": 0,
+            "updated": 0,
+            "failed": 0,
+            "failed_items": [],
+        }
+        batch: list[dict[str, Any]] = []
+        batch_targets = 0
+
+        def flush_batch() -> None:
+            nonlocal batch, batch_targets
+            if not batch:
+                batch_targets = 0
+                return
+            summary = ingest_kline_payload(
+                db,
+                {
+                    "job_type": "full_market_daily_kline",
+                    "source": "akshare",
+                    "fetched_at": datetime.now(timezone.utc).isoformat(),
+                    "items": batch,
+                    "failed_items": [],
+                },
+            )
+            result["inserted"] += summary.get("inserted", 0)
+            result["updated"] += summary.get("updated", 0)
+            batch = []
+            batch_targets = 0
+
+        for idx, target in enumerate(targets):
+            if idx:
+                self.sleep(self.request_interval_seconds)
+            try:
+                rows = self._call_with_backoff(lambda t=target: self._history_rows_for_target(t, start, end, prefer_bulk_daily=True), target["code"])
+                batch.extend(rows)
+                batch_targets += 1
+                result["processed"] += 1
+            except Exception as exc:
+                result["failed_items"].append({"code": target["code"], "name": target["name"], "error": str(exc)})
+            if batch_targets >= batch_size:
+                flush_batch()
+
+        flush_batch()
+        result["failed"] = len(result["failed_items"])
+        record_collection_job(
+            db,
+            "full_market_daily_kline",
+            "akshare",
+            "success" if result["failed"] == 0 else "partial_failed",
+            {key: value for key, value in result.items() if key != "failed_items"},
+            {"days": days, "batch_size": batch_size, "limit": limit, "total_targets": len(targets)},
+            None if result["failed"] == 0 else f"{result['failed']} targets failed",
+        )
+        db.commit()
+        return result
+
     def collect_intraday(self, db: Session, trading_days: int = 10, period_minutes: int = 5) -> dict[str, Any]:
         if period_minutes not in {1, 5, 15, 30, 60}:
             raise ValueError("period_minutes must be one of 1, 5, 15, 30, 60")
@@ -299,14 +370,77 @@ class AkshareCollector:
             )
         return items, failed_items
 
-    def _history_rows_for_target(self, target: dict[str, str], start: date, end: date) -> list[dict[str, Any]]:
+    def _full_market_stock_targets(self) -> list[dict[str, str]]:
+        exchange_targets = self._exchange_stock_info_targets()
+        if exchange_targets:
+            return exchange_targets
+        return self._spot_stock_targets()
+
+    def _exchange_stock_info_targets(self) -> list[dict[str, str]]:
+        sources = [
+            ("stock_info_sh_name_code", "证券代码", "证券简称", "所属行业"),
+            ("stock_info_sz_name_code", "A股代码", "A股简称", "所属行业"),
+            ("stock_info_bj_name_code", "证券代码", "证券简称", "所属行业"),
+        ]
+        targets: list[dict[str, str]] = []
+        seen: set[str] = set()
+        for function_name, code_field, name_field, industry_field in sources:
+            if not hasattr(self.ak, function_name):
+                continue
+            try:
+                df = getattr(self.ak, function_name)()
+            except Exception:
+                continue
+            for row in _records(df):
+                raw_code = str(_value(row, code_field, "代码", "code") or "").strip()
+                if not raw_code:
+                    continue
+                code = normalize_a_code(raw_code)
+                if not _is_a_share_code(code) or code in seen:
+                    continue
+                seen.add(code)
+                targets.append(
+                    {
+                        "code": code,
+                        "name": str(_value(row, name_field, "名称", "name") or code),
+                        "market": infer_market_from_code(code),
+                        "security_type": "stock",
+                        "industry": str(_value(row, industry_field, "行业", "板块") or ""),
+                    }
+                )
+        return targets
+
+    def _spot_stock_targets(self) -> list[dict[str, str]]:
+        df = self._stock_spot_frame()
+        targets: list[dict[str, str]] = []
+        seen: set[str] = set()
+        for row in _records(df):
+            raw_code = str(_value(row, "代码", "code") or "").strip()
+            if not raw_code:
+                continue
+            code = normalize_a_code(raw_code)
+            if not _is_a_share_code(code) or code in seen:
+                continue
+            seen.add(code)
+            targets.append(
+                {
+                    "code": code,
+                    "name": str(_value(row, "名称", "name") or code),
+                    "market": infer_market_from_code(code),
+                    "security_type": "stock",
+                    "industry": str(_value(row, "行业", "所属行业", "板块") or ""),
+                }
+            )
+        return targets
+
+    def _history_rows_for_target(self, target: dict[str, str], start: date, end: date, prefer_bulk_daily: bool = False) -> list[dict[str, Any]]:
         start_text = start.strftime("%Y%m%d")
         end_text = end.strftime("%Y%m%d")
         symbol = target.get("symbol") or target["code"].split(".")[0]
         if target["security_type"] == "index":
             df = self._index_history_frame(target, start_text, end_text)
         else:
-            df = self._stock_history_frame(target, symbol, start_text, end_text)
+            df = self._stock_history_frame(target, symbol, start_text, end_text, prefer_bulk_daily=prefer_bulk_daily)
 
         rows: list[dict[str, Any]] = []
         for row in _records(df):
@@ -332,41 +466,53 @@ class AkshareCollector:
             )
         return rows
 
-    def _stock_history_frame(self, target: dict[str, str], symbol: str, start_text: str, end_text: str) -> Any:
+    def _stock_history_frame(self, target: dict[str, str], symbol: str, start_text: str, end_text: str, prefer_bulk_daily: bool = False) -> Any:
         errors: list[str] = []
-        if hasattr(self.ak, "stock_zh_a_hist"):
-            try:
-                return self.ak.stock_zh_a_hist(
-                    symbol=symbol,
-                    period="daily",
-                    start_date=start_text,
-                    end_date=end_text,
-                    adjust="qfq",
-                )
-            except Exception as exc:
-                errors.append(f"stock_zh_a_hist: {exc}")
 
-        market_symbol = f"{'sh' if target['code'].endswith('.SH') else 'sz'}{symbol}"
-        if hasattr(self.ak, "stock_zh_a_daily"):
+        def try_stock_zh_a_hist() -> Any:
+            if not hasattr(self.ak, "stock_zh_a_hist"):
+                raise RuntimeError("stock_zh_a_hist is unavailable")
+            return self.ak.stock_zh_a_hist(
+                symbol=symbol,
+                period="daily",
+                start_date=start_text,
+                end_date=end_text,
+                adjust="qfq",
+            )
+
+        def try_stock_zh_a_daily() -> Any:
+            if not hasattr(self.ak, "stock_zh_a_daily"):
+                raise RuntimeError("stock_zh_a_daily is unavailable")
+            market_symbol = _market_symbol(target["code"], symbol)
+            return self.ak.stock_zh_a_daily(
+                symbol=market_symbol,
+                start_date=start_text,
+                end_date=end_text,
+                adjust="qfq",
+            )
+
+        def try_stock_zh_a_hist_tx() -> Any:
+            if not hasattr(self.ak, "stock_zh_a_hist_tx"):
+                raise RuntimeError("stock_zh_a_hist_tx is unavailable")
+            market_symbol = _market_symbol(target["code"], symbol)
+            return self.ak.stock_zh_a_hist_tx(
+                symbol=market_symbol,
+                start_date=start_text,
+                end_date=end_text,
+                adjust="qfq",
+            )
+
+        attempts = (
+            (("stock_zh_a_daily", try_stock_zh_a_daily), ("stock_zh_a_hist_tx", try_stock_zh_a_hist_tx), ("stock_zh_a_hist", try_stock_zh_a_hist))
+            if prefer_bulk_daily
+            else (("stock_zh_a_hist", try_stock_zh_a_hist), ("stock_zh_a_daily", try_stock_zh_a_daily), ("stock_zh_a_hist_tx", try_stock_zh_a_hist_tx))
+        )
+
+        for label, attempt in attempts:
             try:
-                return self.ak.stock_zh_a_daily(
-                    symbol=market_symbol,
-                    start_date=start_text,
-                    end_date=end_text,
-                    adjust="qfq",
-                )
+                return attempt()
             except Exception as exc:
-                errors.append(f"stock_zh_a_daily: {exc}")
-        if hasattr(self.ak, "stock_zh_a_hist_tx"):
-            try:
-                return self.ak.stock_zh_a_hist_tx(
-                    symbol=market_symbol,
-                    start_date=start_text,
-                    end_date=end_text,
-                    adjust="qfq",
-                )
-            except Exception as exc:
-                errors.append(f"stock_zh_a_hist_tx: {exc}")
+                errors.append(f"{label}: {exc}")
         raise RuntimeError("; ".join(errors) or "AKShare stock history interface is unavailable")
 
     def _index_history_frame(self, target: dict[str, str], start_text: str, end_text: str) -> Any:
@@ -499,7 +645,7 @@ def normalize_a_code(raw_code: str) -> str:
         return f"{code}.SH"
     if code.startswith(("000", "001", "002", "003", "300", "301", "200")):
         return f"{code}.SZ"
-    if code.startswith(("430", "8", "4")):
+    if code.startswith(("430", "8", "4", "920")):
         return f"{code}.BJ"
     return raw_code.strip().upper()
 
@@ -512,6 +658,26 @@ def infer_market_from_code(code: str) -> str:
     if code.endswith(".BJ"):
         return "BJ"
     return "UNKNOWN"
+
+
+def _is_a_share_code(code: str) -> bool:
+    if code.endswith(".SH"):
+        return code.startswith(("600", "601", "603", "605", "688", "689"))
+    if code.endswith(".SZ"):
+        return code.startswith(("000", "001", "002", "003", "300", "301"))
+    if code.endswith(".BJ"):
+        return code.startswith(("430", "8", "4", "920"))
+    return False
+
+
+def _market_symbol(code: str, symbol: str) -> str:
+    if code.endswith(".SH"):
+        return f"sh{symbol}"
+    if code.endswith(".SZ"):
+        return f"sz{symbol}"
+    if code.endswith(".BJ"):
+        return f"bj{symbol}"
+    return symbol
 
 
 def _records(df: Any) -> list[dict[str, Any]]:
