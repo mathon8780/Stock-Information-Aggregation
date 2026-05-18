@@ -43,10 +43,18 @@ def test_openclaw_scheduler_uses_real_endpoints() -> None:
 
     market_result = scheduler.run_task("market-data-fetcher", post=fake_post, enforce_trading_hours=False)
     intraday_result = scheduler.run_task("market-intraday-fetcher", post=fake_post, enforce_trading_hours=False)
+    history_result = scheduler.run_task("market-history-fetcher", post=fake_post, enforce_trading_hours=False)
     news_result = scheduler.run_task("market-info-fetcher", post=fake_post, enforce_trading_hours=False)
 
     assert market_result["status"] == "success"
     assert intraday_result["status"] == "success"
+    assert history_result["status"] == "success"
     assert news_result["status"] == "success"
-    assert calls == ["/api/v1/collector/real/market", "/api/v1/collector/real/intraday", "/api/v1/collector/real/news"]
+    assert calls == [
+        "/api/v1/collector/real/market",
+        "/api/v1/collector/real/intraday",
+        "/api/v1/collector/real/full-market-history/start?days=365&batch_size=30",
+        "/api/v1/collector/real/news",
+    ]
+    assert scheduler.get_task("market-info-fetcher").interval_seconds == 300
     assert all("collector/demo" not in (task.endpoint or "") for task in scheduler.default_tasks())

@@ -16,7 +16,7 @@ tasks:
 
   - name: market-info-fetcher
     command: ".\\.venv\\Scripts\\python openclaw\\market-info-fetcher\\run.py"
-    interval_seconds: 900
+    interval_seconds: 300
     trading_hours_only: false
 
   - name: market-analysis-trigger

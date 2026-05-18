@@ -10,7 +10,7 @@ import WatchlistOverview from '../features/dashboard/components/WatchlistOvervie
 import { useDashboardData } from '../features/dashboard/useDashboardData';
 
 export default function Dashboard() {
-  const { loading, market, watchlist, news, jobs, load } = useDashboardData();
+  const { loading, market, watchlist, watchlistMaxSize, news, jobs, load } = useDashboardData();
 
   if (loading) return <Spin fullscreen tip="加载市场数据" />;
 
@@ -48,7 +48,7 @@ export default function Dashboard() {
           </div>
 
           <div className="section-gap">
-            <WatchlistOverview watchlist={watchlist} />
+            <WatchlistOverview watchlist={watchlist} maxSize={watchlistMaxSize} onChanged={() => load(false)} />
           </div>
 
           <div className="section-gap"><RiskNotice /></div>

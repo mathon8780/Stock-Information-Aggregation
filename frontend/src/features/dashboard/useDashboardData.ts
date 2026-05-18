@@ -7,6 +7,7 @@ import type { CollectionJob, NewsItem, Snapshot, WatchItem } from '../../types';
 type DashboardCache = {
   market: Snapshot[];
   watchlist: WatchItem[];
+  watchlistMaxSize: number;
   news: NewsItem[];
   jobs: CollectionJob[];
 };
@@ -17,6 +18,7 @@ export function useDashboardData() {
   const [loading, setLoading] = useState(!dashboardCache);
   const [market, setMarket] = useState<Snapshot[]>(dashboardCache?.market ?? []);
   const [watchlist, setWatchlist] = useState<WatchItem[]>(dashboardCache?.watchlist ?? []);
+  const [watchlistMaxSize, setWatchlistMaxSize] = useState(dashboardCache?.watchlistMaxSize ?? 0);
   const [news, setNews] = useState<NewsItem[]>(dashboardCache?.news ?? []);
   const [jobs, setJobs] = useState<CollectionJob[]>(dashboardCache?.jobs ?? []);
 
@@ -35,12 +37,14 @@ export function useDashboardData() {
       const next = {
         market: Array.from(byCode.values()),
         watchlist: watchRes.items,
+        watchlistMaxSize: watchRes.max_size,
         news: newsRes.items,
         jobs: jobsRes.items,
       };
       dashboardCache = next;
       setMarket(next.market);
       setWatchlist(next.watchlist);
+      setWatchlistMaxSize(next.watchlistMaxSize);
       setNews(next.news);
       setJobs(next.jobs);
     } catch (error) {
@@ -53,5 +57,5 @@ export function useDashboardData() {
   useEffect(() => { void load(!dashboardCache); }, [load]);
   useBackendEvents(['market.updated', 'watchlist.updated', 'news.updated', 'advice.updated', 'jobs.updated'], () => load(false));
 
-  return { loading, market, watchlist, news, jobs, load };
+  return { loading, market, watchlist, watchlistMaxSize, news, jobs, load };
 }

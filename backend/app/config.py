@@ -59,9 +59,9 @@ class Settings:
 
     market_snapshot_interval_seconds: int = _int("MARKET_SNAPSHOT_INTERVAL_SECONDS", 300)
     watch_snapshot_interval_seconds: int = _int("WATCH_SNAPSHOT_INTERVAL_SECONDS", 60)
-    news_interval_seconds: int = _int("NEWS_INTERVAL_SECONDS", 900)
+    news_interval_seconds: int = _int("NEWS_INTERVAL_SECONDS", 300)
     news_auto_sync_enabled: bool = _bool("NEWS_AUTO_SYNC_ENABLED", not _database_url().startswith("sqlite"))
-    news_auto_sync_interval_seconds: int = _int("NEWS_AUTO_SYNC_INTERVAL_SECONDS", 60)
+    news_auto_sync_interval_seconds: int = _int("NEWS_AUTO_SYNC_INTERVAL_SECONDS", 300)
     news_auto_sync_limit: int = _int("NEWS_AUTO_SYNC_LIMIT", 30)
     news_auto_simplify_limit: int = _int("NEWS_AUTO_SIMPLIFY_LIMIT", 50)
     advice_interval_seconds: int = _int("ADVICE_INTERVAL_SECONDS", 900)

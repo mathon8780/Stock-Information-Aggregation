@@ -293,6 +293,39 @@ a,
   padding: 0;
 }
 
+.watchlist-card .ant-card-head {
+  background: linear-gradient(90deg, rgba(15, 118, 110, 0.08), rgba(37, 99, 235, 0.06));
+}
+
+.watchlist-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--line);
+  background: #fbfcfd;
+}
+
+.watchlist-search {
+  width: 320px;
+}
+
+.watchlist-option {
+  display: grid;
+  grid-template-columns: minmax(76px, 1fr) 86px minmax(72px, 1fr);
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+}
+
+.watchlist-option > span,
+.watchlist-option .ant-typography {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
 .table-section-title {
   padding: 14px 16px 6px;
   color: var(--ink-muted);
@@ -548,8 +581,21 @@ a,
 
   .toolbar .ant-input-search,
   .toolbar .ant-select,
-  .toolbar .ant-btn {
+  .toolbar .ant-btn,
+  .watchlist-search,
+  .watchlist-controls .ant-space,
+  .watchlist-controls .ant-btn {
     width: 100% !important;
+  }
+
+  .watchlist-controls {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .watchlist-option {
+    grid-template-columns: 1fr;
+    gap: 2px;
   }
 
   .metric-value {

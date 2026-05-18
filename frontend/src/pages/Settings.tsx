@@ -38,11 +38,11 @@ export default function Settings() {
     try {
       if (task === 'bootstrap') await api.collectBootstrap();
       if (task === 'market') await api.collectMarket();
-      if (task === 'history') await api.collectHistory();
+      if (task === 'history') await api.collectFullMarketHistory();
       if (task === 'intraday') await api.collectIntraday();
       if (task === 'news') await api.collectNews();
       if (task === 'simplifyNews') await api.simplifyPendingNews(50);
-      message.success('任务执行完成');
+      message.success(task === 'history' ? '全市场日 K 后台任务已启动' : '任务执行完成');
       await load(true);
     } catch (error) {
       message.error(error instanceof Error ? error.message : '执行失败');

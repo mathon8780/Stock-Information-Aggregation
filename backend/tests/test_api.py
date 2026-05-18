@@ -11,7 +11,7 @@ from sqlalchemy import event
 from app.api import router as api_router
 from app.main import app
 from app.database import SessionLocal, engine
-from app.models import CollectionJob, KlineDaily, News, Notification
+from app.models import CollectionJob, KlineDaily, News, Notification, Stock, TradingAdvice, Watchlist
 from app.services import news_auto_sync_service
 from app.services.event_bus import publish_event, subscribe, unsubscribe
 from app.services.news_collector_service import NewsCollector, OpenAICompatibleNewsFormatter
@@ -141,6 +141,39 @@ def test_trigger_analysis_for_real_watch_stock(monkeypatch):
         assert response.json()["signal"] in {"重点关注", "谨慎买入", "持有", "减仓", "回避"}
 
 
+def test_trigger_watchlist_analysis_route_is_not_shadowed(monkeypatch):
+    monkeypatch.setattr(api_router, "AkshareCollector", lambda: AkshareCollector(FakeAkshare(), sleep_fn=lambda _: None))
+    with TestClient(app) as client:
+        client.post("/api/v1/collector/real/bootstrap")
+        response = client.post("/api/v1/analysis/watchlist")
+        assert response.status_code == 200
+        body = response.json()
+        assert body["total"] > 0
+        assert body["items"][0]["code"] != "WATCHLIST"
+
+
+def test_add_watch_auto_triggers_analysis(monkeypatch):
+    monkeypatch.setattr(api_router, "AkshareCollector", lambda: AkshareCollector(FakeInfoAkshare(), sleep_fn=lambda _: None))
+    with TestClient(app) as client:
+        client.post("/api/v1/collector/real/full-market-history?days=365&limit=1")
+        with SessionLocal() as db:
+            stock = db.query(Stock).filter(Stock.code == "600000.SH").one()
+            db.query(Watchlist).filter(Watchlist.stock_id == stock.id).delete()
+            db.query(TradingAdvice).filter(TradingAdvice.stock_id == stock.id).delete()
+            db.commit()
+
+        response = client.post("/api/v1/watchlist", json={"code": "600000.SH"})
+        assert response.status_code == 200
+        body = response.json()
+        assert body["status"] == "created"
+        assert body["analysis_status"] == "success"
+        assert body["latest_advice"]["code"] == "600000.SH"
+
+        with SessionLocal() as db:
+            stock = db.query(Stock).filter(Stock.code == "600000.SH").one()
+            assert db.query(TradingAdvice).filter(TradingAdvice.stock_id == stock.id).count() == 1
+
+
 def test_collect_and_query_watchlist_intraday_5m(monkeypatch):
     monkeypatch.setattr(api_router, "AkshareCollector", lambda: AkshareCollector(FakeAkshare(), sleep_fn=lambda _: None))
     with TestClient(app) as client:
@@ -229,6 +262,22 @@ def test_collect_full_market_history_prefers_daily_interface_for_bulk_import(mon
         assert body["processed"] == 1
         assert body["failed"] == 0
         assert fake.hist_called is False
+
+
+def test_start_full_market_history_uses_background_entrypoint(monkeypatch):
+    fake = FakeBulkDailyAkshare()
+    monkeypatch.setattr(api_router, "AkshareCollector", lambda: AkshareCollector(fake, sleep_fn=lambda _: None))
+    with TestClient(app) as client:
+        response = client.post("/api/v1/collector/real/full-market-history/start?days=365&limit=1")
+        assert response.status_code == 200
+        body = response.json()
+        assert body["status"] == "started"
+        assert body["job_type"] == "full_market_daily_kline"
+        assert body["limit"] == 1
+
+        first = client.get("/api/v1/stocks/600000.SH/kline?limit=40")
+        assert first.status_code == 200
+        assert first.json()["total"] == 30
 
 
 def test_advice_summary_uses_bounded_queries(monkeypatch):

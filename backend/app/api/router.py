@@ -4,20 +4,21 @@ import asyncio
 import json
 from datetime import datetime, timezone
 from decimal import Decimal
+from threading import Lock
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy import and_, desc, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app.database import get_db
+from app.database import SessionLocal, get_db
 from app.models import CollectionJob, KlineDaily, KlineIntraday, MarketSnapshot, News, Notification, Stock, TradingAdvice, WatchSnapshot, Watchlist
 from app.schemas import AddWatchRequest, NewsLlmConfigRequest, NotificationResultRequest, UpdateWatchRequest
 from app.services.analysis_service import DISCLAIMER, analyze_stock, analyze_watchlist
 from app.services.event_bus import publish_event, subscribe, unsubscribe
-from app.services.ingest_service import ingest_kline_payload, ingest_market_payload, ingest_news_payload, normalize_code
+from app.services.ingest_service import ingest_kline_payload, ingest_market_payload, ingest_news_payload, normalize_code, record_collection_job
 from app.services.news_auto_sync_service import trigger_news_simplification
 from app.services.news_llm_config_service import news_llm_config_dict, save_news_llm_config
 from app.services.news_collector_service import NewsCollector
@@ -27,6 +28,7 @@ from app.services.serializers import advice_dict, intraday_kline_dict, job_dict,
 
 
 router = APIRouter(prefix="/api/v1")
+_full_market_history_lock = Lock()
 
 
 @router.get("/health")
@@ -275,16 +277,16 @@ def advice_history(code: str, limit: int = Query(20, ge=1, le=100), db: Session 
     return {"stock": stock_dict(stock), "items": [advice_dict(row, stock) for row in rows], "total": len(rows)}
 
 
-@router.post("/analysis/{code}")
-def trigger_analysis(code: str, db: Session = Depends(get_db)) -> dict[str, Any]:
-    stock = _get_stock_or_404(db, code)
-    return advice_dict(analyze_stock(db, stock.code), stock)
-
-
 @router.post("/analysis/watchlist")
 def trigger_watchlist_analysis(db: Session = Depends(get_db)) -> dict[str, Any]:
     rows = analyze_watchlist(db)
     return {"items": [advice_dict(row, row.stock) for row in rows], "total": len(rows)}
+
+
+@router.post("/analysis/{code}")
+def trigger_analysis(code: str, db: Session = Depends(get_db)) -> dict[str, Any]:
+    stock = _get_stock_or_404(db, code)
+    return advice_dict(analyze_stock(db, stock.code), stock)
 
 
 @router.get("/watchlist")
@@ -305,11 +307,21 @@ def add_watch(request: AddWatchRequest, db: Session = Depends(get_db)) -> dict[s
         raise HTTPException(status_code=400, detail="Watchlist size limit reached")
     stock = _get_stock_or_404(db, request.code)
     if _watch_item(db, stock.id) is not None:
-        return {"status": "exists", "item": stock_dict(stock)}
+        advice = _latest_advice(db, stock.id)
+        return {"status": "exists", "item": stock_dict(stock), "analysis_status": "skipped", "latest_advice": advice_dict(advice, stock) if advice else None}
     db.add(Watchlist(stock_id=stock.id, display_order=current_count + 1, alert_enabled=request.alert_enabled, alert_threshold_pct=Decimal(str(request.alert_threshold_pct)), strategy_push_enabled=request.strategy_push_enabled))
     db.commit()
+    analysis_status = "success"
+    latest_advice = None
+    analysis_error = None
+    try:
+        latest_advice = advice_dict(analyze_stock(db, stock.code), stock)
+    except Exception as exc:
+        db.rollback()
+        analysis_status = "failed"
+        analysis_error = str(exc)
     publish_event("watchlist.updated", {"code": stock.code, "action": "created"})
-    return {"status": "created", "item": stock_dict(stock)}
+    return {"status": "created", "item": stock_dict(stock), "analysis_status": analysis_status, "latest_advice": latest_advice, "analysis_error": analysis_error}
 
 
 @router.patch("/watchlist/{code}")
@@ -388,6 +400,20 @@ def collect_real_full_market_history(
     return AkshareCollector().collect_full_market_history(db, days=days, batch_size=batch_size, limit=limit)
 
 
+@router.post("/collector/real/full-market-history/start")
+def start_real_full_market_history(
+    background_tasks: BackgroundTasks,
+    days: int = Query(365, ge=1, le=3650),
+    batch_size: int = Query(30, ge=1, le=200),
+    limit: int | None = Query(None, ge=1, le=10000),
+) -> dict[str, Any]:
+    if not _full_market_history_lock.acquire(blocking=False):
+        return {"status": "already_running", "job_type": "full_market_daily_kline", "days": days, "batch_size": batch_size, "limit": limit}
+    background_tasks.add_task(_run_full_market_history_background, days, batch_size, limit)
+    publish_event("jobs.updated", {"job_type": "full_market_daily_kline", "status": "started"})
+    return {"status": "started", "job_type": "full_market_daily_kline", "days": days, "batch_size": batch_size, "limit": limit}
+
+
 @router.post("/collector/real/intraday")
 def collect_real_intraday(trading_days: int = Query(10, ge=1, le=30), period: int = Query(5, ge=1, le=60), db: Session = Depends(get_db)) -> dict[str, Any]:
     try:
@@ -453,6 +479,27 @@ def _latest_market_rows(db: Session) -> list[tuple[MarketSnapshot, Stock]]:
 def _intraday_query_limit(days: int, period_minutes: int) -> int:
     bars_per_day = max(120, (300 // max(1, period_minutes)) + 20)
     return days * bars_per_day
+
+
+def _run_full_market_history_background(days: int, batch_size: int, limit: int | None) -> None:
+    try:
+        with SessionLocal() as db:
+            AkshareCollector().collect_full_market_history(db, days=days, batch_size=batch_size, limit=limit)
+    except Exception as exc:
+        with SessionLocal() as db:
+            record_collection_job(
+                db,
+                "full_market_daily_kline",
+                "akshare",
+                "failed",
+                {"inserted": 0, "updated": 0, "failed": 1},
+                {"days": days, "batch_size": batch_size, "limit": limit},
+                str(exc),
+            )
+            db.commit()
+        publish_event("jobs.updated", {"job_type": "full_market_daily_kline", "status": "failed"})
+    finally:
+        _full_market_history_lock.release()
 
 
 def _market_sort_column(sort_by: str) -> Any:

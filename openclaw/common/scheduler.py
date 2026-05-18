@@ -41,6 +41,16 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
+def _full_market_history_endpoint() -> str:
+    days = _env_int("FULL_MARKET_HISTORY_DAYS", 365)
+    batch_size = _env_int("FULL_MARKET_HISTORY_BATCH_SIZE", 30)
+    endpoint = f"/api/v1/collector/real/full-market-history/start?days={days}&batch_size={batch_size}"
+    limit = os.getenv("FULL_MARKET_HISTORY_LIMIT")
+    if limit:
+        endpoint = f"{endpoint}&limit={limit}"
+    return endpoint
+
+
 def default_tasks() -> list[ScheduledTask]:
     return [
         ScheduledTask(
@@ -65,14 +75,14 @@ def default_tasks() -> list[ScheduledTask]:
         ),
         ScheduledTask(
             name="market-history-fetcher",
-            endpoint="/api/v1/collector/real/history",
-            interval_seconds=_env_int("HISTORY_INTERVAL_SECONDS", 86400),
-            description="refresh watchlist and index daily kline at low frequency",
+            endpoint=_full_market_history_endpoint(),
+            interval_seconds=_env_int("FULL_MARKET_HISTORY_INTERVAL_SECONDS", _env_int("HISTORY_INTERVAL_SECONDS", 86400)),
+            description="start full market one year daily kline sync at low frequency",
         ),
         ScheduledTask(
             name="market-info-fetcher",
             endpoint="/api/v1/collector/real/news",
-            interval_seconds=_env_int("NEWS_AUTO_SYNC_INTERVAL_SECONDS", _env_int("NEWS_INTERVAL_SECONDS", 60)),
+            interval_seconds=_env_int("NEWS_AUTO_SYNC_INTERVAL_SECONDS", _env_int("NEWS_INTERVAL_SECONDS", 300)),
             description="refresh real news through NewsNow and DeepSeek",
         ),
     ]

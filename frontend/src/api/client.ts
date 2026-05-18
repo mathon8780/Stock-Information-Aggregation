@@ -12,6 +12,12 @@ export const api = {
   settings: () => request<Record<string, any>>('/settings'),
   newsLlmConfig: () => request<NewsLlmConfig>('/news-llm-config'),
   updateNewsLlmConfig: (payload: NewsLlmConfigPayload) => request<NewsLlmConfig>('/news-llm-config', { method: 'PUT', body: JSON.stringify(payload) }),
+  stocks: (q: string, securityType = 'stock') => {
+    const params = new URLSearchParams();
+    if (q.trim()) params.set('q', q.trim());
+    if (securityType) params.set('security_type', securityType);
+    return request<Paged<Stock>>(`/stocks?${params.toString()}`);
+  },
   stock: (code: string) => request<Stock & { latest_snapshot?: Snapshot | null; latest_advice?: Advice | null; is_watched: boolean }>(`/stocks/${code}`),
   kline: (code: string, limit = 90) => request<Paged<Kline>>(`/stocks/${code}/kline?limit=${limit}`),
   intraday: (code: string, period = 5, days = 10) => request<Paged<IntradayKline>>(`/stocks/${code}/intraday?period=${period}&days=${days}`),
@@ -25,10 +31,13 @@ export const api = {
   analyzeWatchlist: () => request<Paged<Advice>>('/analysis/watchlist', { method: 'POST' }),
   watchlist: () => request<Paged<WatchItem> & { max_size: number }>('/watchlist'),
   addWatch: (code: string) => request('/watchlist', { method: 'POST', body: JSON.stringify({ code }) }),
+  updateWatch: (code: string, payload: Partial<Pick<WatchItem, 'alert_enabled' | 'alert_threshold_pct' | 'strategy_push_enabled' | 'display_order'>>) =>
+    request(`/watchlist/${code}`, { method: 'PATCH', body: JSON.stringify(payload) }),
   removeWatch: (code: string) => request(`/watchlist/${code}`, { method: 'DELETE' }),
   collectBootstrap: () => request('/collector/real/bootstrap', { method: 'POST' }),
   collectMarket: () => request('/collector/real/market', { method: 'POST' }),
   collectHistory: () => request('/collector/real/history', { method: 'POST' }),
+  collectFullMarketHistory: () => request('/collector/real/full-market-history/start?days=365', { method: 'POST' }),
   collectIntraday: () => request('/collector/real/intraday', { method: 'POST' }),
   collectStockIntraday: (code: string, period = 1, tradingDays = 1) => request(`/collector/real/intraday/${code}?period=${period}&trading_days=${tradingDays}`, { method: 'POST' }),
   collectNews: () => request('/collector/real/news', { method: 'POST' }),
