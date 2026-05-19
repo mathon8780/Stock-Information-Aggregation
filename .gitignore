@@ -12,12 +12,22 @@ venv/
 backend/data/*.db
 backend/data/*.sqlite*
 backend/data/*.log
+backend/data/**/*.db
+backend/data/**/*.sqlite*
+backend/data/**/*.log
 data/*.db
 data/*.sqlite*
 data/*.log
 data/*.pid
 data/*.logpath
 data/*.errpath
+data/**/*.db
+data/**/*.sqlite*
+data/**/*.log
+data/**/*.pid
+data/**/*.logpath
+data/**/*.errpath
+data/logs/
 data/runtime/
 
 # Frontend
@@ -28,7 +38,9 @@ frontend/dist/
 
 # Environment
 .env
+.env.*
 .env.local
+!.env.example
 
 # IDE / OS
 .idea/
