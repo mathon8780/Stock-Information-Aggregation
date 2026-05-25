@@ -33,16 +33,23 @@ export default function Settings() {
   useEffect(() => { void load(); }, [load]);
   useBackendEvents(['settings.updated', 'jobs.updated'], () => load(false));
 
-  const runTask = async (task: 'bootstrap' | 'market' | 'history' | 'intraday' | 'news' | 'simplifyNews') => {
+  const runTask = async (task: 'bootstrap' | 'market' | 'history' | 'missingDailyKline' | 'intraday' | 'news' | 'simplifyNews') => {
     setLoading(true);
     try {
+      let backgroundStatus: 'started' | 'already_running' | undefined;
       if (task === 'bootstrap') await api.collectBootstrap();
       if (task === 'market') await api.collectMarket();
-      if (task === 'history') await api.collectFullMarketHistory();
+      if (task === 'history') backgroundStatus = (await api.collectFullMarketHistory()).status;
+      if (task === 'missingDailyKline') backgroundStatus = (await api.collectMissingDailyKline()).status;
       if (task === 'intraday') await api.collectIntraday();
       if (task === 'news') await api.collectNews();
       if (task === 'simplifyNews') await api.simplifyPendingNews(50);
-      message.success(task === 'history' ? '全市场日 K 后台任务已启动' : '任务执行完成');
+      if (task === 'history' || task === 'missingDailyKline') {
+        if (backgroundStatus === 'already_running') message.info('日 K 后台任务已在运行');
+        else message.success('日 K 后台任务已启动');
+      } else {
+        message.success('任务执行完成');
+      }
       await load(true);
     } catch (error) {
       message.error(error instanceof Error ? error.message : '执行失败');

@@ -6,14 +6,15 @@ import time
 from datetime import date, datetime, time as wall_time, timedelta, timezone
 from typing import Any, Callable, Iterable
 
-from sqlalchemy import select
+from sqlalchemy import exists, select
 from sqlalchemy.orm import Session
 
 from app.analysis import calculate_indicators
 from app.config import settings
 from app.database import Base, engine, init_db
-from app.models import Stock, Watchlist
+from app.models import KlineDaily, Stock, Watchlist
 from app.services.analysis_service import analyze_watchlist
+from app.services.event_bus import publish_event
 from app.services.ingest_service import ingest_intraday_kline_payload, ingest_kline_payload, ingest_market_payload, record_collection_job
 
 
@@ -246,6 +247,82 @@ class AkshareCollector:
             None if result["failed"] == 0 else f"{result['failed']} targets failed",
         )
         db.commit()
+        return result
+
+    def collect_missing_daily_kline(
+        self,
+        db: Session,
+        days: int = 365,
+        batch_size: int = 30,
+        limit: int | None = None,
+    ) -> dict[str, Any]:
+        end = date.today()
+        start = end - timedelta(days=days)
+        targets = self._missing_daily_kline_targets(db)
+        if limit is not None:
+            targets = targets[:limit]
+
+        result: dict[str, Any] = {
+            "total_targets": len(targets),
+            "processed": 0,
+            "inserted": 0,
+            "updated": 0,
+            "failed": 0,
+            "failed_items": [],
+        }
+        batch: list[dict[str, Any]] = []
+        batch_targets = 0
+
+        def flush_batch() -> None:
+            nonlocal batch, batch_targets
+            if not batch:
+                batch_targets = 0
+                return
+            summary = ingest_kline_payload(
+                db,
+                {
+                    "job_type": "missing_daily_kline",
+                    "source": "akshare",
+                    "fetched_at": datetime.now(timezone.utc).isoformat(),
+                    "items": batch,
+                    "failed_items": [],
+                },
+            )
+            result["inserted"] += summary.get("inserted", 0)
+            result["updated"] += summary.get("updated", 0)
+            batch = []
+            batch_targets = 0
+
+        for idx, target in enumerate(targets):
+            if idx:
+                self.sleep(self.request_interval_seconds)
+            try:
+                rows = self._call_with_backoff(lambda t=target: self._history_rows_for_target(t, start, end, prefer_bulk_daily=True), target["code"])
+                if rows:
+                    batch.extend(rows)
+                    batch_targets += 1
+                else:
+                    result["failed_items"].append({"code": target["code"], "name": target["name"], "error": "no daily kline rows returned"})
+                result["processed"] += 1
+            except Exception as exc:
+                result["failed_items"].append({"code": target["code"], "name": target["name"], "error": str(exc)})
+                result["processed"] += 1
+            if batch_targets >= batch_size:
+                flush_batch()
+
+        flush_batch()
+        result["failed"] = len(result["failed_items"])
+        record_collection_job(
+            db,
+            "missing_daily_kline",
+            "akshare",
+            "success" if result["failed"] == 0 else "partial_failed",
+            {key: value for key, value in result.items() if key != "failed_items"},
+            {"days": days, "batch_size": batch_size, "limit": limit, "total_targets": len(targets)},
+            None if result["failed"] == 0 else f"{result['failed']} targets failed",
+        )
+        db.commit()
+        publish_event("jobs.updated", {"job_type": "missing_daily_kline", "status": "success" if result["failed"] == 0 else "partial_failed"})
         return result
 
     def collect_intraday(self, db: Session, trading_days: int = 10, period_minutes: int = 5) -> dict[str, Any]:
@@ -501,6 +578,28 @@ class AkshareCollector:
         if exchange_targets:
             return exchange_targets
         return self._spot_stock_targets()
+
+    def _missing_daily_kline_targets(self, db: Session) -> list[dict[str, str]]:
+        existing_kline_codes = set(
+            db.execute(select(Stock.code).join(KlineDaily, KlineDaily.stock_id == Stock.id).distinct()).scalars().all()
+        )
+        missing_by_code: dict[str, dict[str, str]] = {}
+        for target in self._full_market_stock_targets():
+            if target["code"] not in existing_kline_codes:
+                missing_by_code[target["code"]] = target
+
+        local_missing = db.execute(
+            select(Stock)
+            .where(
+                Stock.security_type == "stock",
+                Stock.is_active.is_(True),
+                ~exists().where(KlineDaily.stock_id == Stock.id),
+            )
+            .order_by(Stock.code)
+        ).scalars().all()
+        for stock in local_missing:
+            missing_by_code.setdefault(stock.code, _stock_target(stock))
+        return list(missing_by_code.values())
 
     def _exchange_stock_info_targets(self) -> list[dict[str, str]]:
         sources = [

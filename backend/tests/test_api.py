@@ -1,5 +1,6 @@
 import asyncio
 import os
+from datetime import date
 
 os.environ["DATABASE_URL"] = "sqlite:///./data/test_market_agent.db"
 os.environ["AUTO_SEED_DEMO_DATA"] = "false"
@@ -10,7 +11,7 @@ from sqlalchemy import event
 
 from app.api import router as api_router
 from app.main import app
-from app.database import SessionLocal, engine
+from app.database import Base, SessionLocal, engine
 from app.models import CollectionJob, KlineDaily, KlineIntraday, News, Notification, Stock, TradingAdvice, Watchlist
 from app.services import news_auto_sync_service, watch_stock_sync_service
 from app.services.event_bus import publish_event, subscribe, unsubscribe
@@ -352,6 +353,41 @@ def test_start_full_market_history_uses_background_entrypoint(monkeypatch):
         first = client.get("/api/v1/stocks/600000.SH/kline?limit=40")
         assert first.status_code == 200
         assert first.json()["total"] == 30
+
+
+def test_start_missing_daily_kline_only_fills_targets_without_daily_kline(monkeypatch):
+    Base.metadata.drop_all(bind=engine)
+    Base.metadata.create_all(bind=engine)
+    monkeypatch.setattr(api_router, "AkshareCollector", lambda: AkshareCollector(FakeInfoAkshare(), sleep_fn=lambda _: None))
+
+    with SessionLocal() as db:
+        stock = Stock(code="600000.SH", name="浦发银行", market="SH", security_type="stock")
+        db.add(stock)
+        db.flush()
+        db.add(KlineDaily(stock_id=stock.id, trade_date=date(2026, 4, 1), close=1, source="test"))
+        db.commit()
+
+    with TestClient(app) as client:
+        response = client.post("/api/v1/collector/real/missing-daily-kline/start?days=365")
+        assert response.status_code == 200
+        body = response.json()
+        assert body["status"] == "started"
+        assert body["job_type"] == "missing_daily_kline"
+
+    with SessionLocal() as db:
+        existing = db.query(Stock).filter(Stock.code == "600000.SH").one()
+        assert db.query(KlineDaily).filter(KlineDaily.stock_id == existing.id).count() == 1
+
+        missing_filled = db.query(Stock).filter(Stock.code.in_(("000001.SZ", "920000.BJ"))).all()
+        assert len(missing_filled) == 2
+        assert sum(db.query(KlineDaily).filter(KlineDaily.stock_id == row.id).count() for row in missing_filled) == 60
+
+        job = db.query(CollectionJob).filter(CollectionJob.job_type == "missing_daily_kline").order_by(CollectionJob.id.desc()).first()
+        assert job is not None
+        assert job.status == "success"
+        assert job.result_summary["total_targets"] == 2
+        assert job.result_summary["processed"] == 2
+        assert job.result_summary["failed"] == 0
 
 
 def test_advice_summary_uses_bounded_queries(monkeypatch):

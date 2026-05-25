@@ -31,6 +31,7 @@ from app.services.watch_stock_sync_service import enqueue_watch_stock_sync, run_
 
 router = APIRouter(prefix="/api/v1")
 _full_market_history_lock = Lock()
+_missing_daily_kline_lock = Lock()
 
 
 @router.get("/health")
@@ -437,6 +438,30 @@ def start_real_full_market_history(
     return {"status": "started", "job_type": "full_market_daily_kline", "days": days, "batch_size": batch_size, "limit": limit}
 
 
+@router.post("/collector/real/missing-daily-kline")
+def collect_real_missing_daily_kline(
+    days: int = Query(365, ge=1, le=3650),
+    batch_size: int = Query(30, ge=1, le=200),
+    limit: int | None = Query(None, ge=1, le=10000),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    return AkshareCollector().collect_missing_daily_kline(db, days=days, batch_size=batch_size, limit=limit)
+
+
+@router.post("/collector/real/missing-daily-kline/start")
+def start_real_missing_daily_kline(
+    background_tasks: BackgroundTasks,
+    days: int = Query(365, ge=1, le=3650),
+    batch_size: int = Query(30, ge=1, le=200),
+    limit: int | None = Query(None, ge=1, le=10000),
+) -> dict[str, Any]:
+    if not _missing_daily_kline_lock.acquire(blocking=False):
+        return {"status": "already_running", "job_type": "missing_daily_kline", "days": days, "batch_size": batch_size, "limit": limit}
+    background_tasks.add_task(_run_missing_daily_kline_background, days, batch_size, limit)
+    publish_event("jobs.updated", {"job_type": "missing_daily_kline", "status": "started"})
+    return {"status": "started", "job_type": "missing_daily_kline", "days": days, "batch_size": batch_size, "limit": limit}
+
+
 @router.post("/collector/real/intraday")
 def collect_real_intraday(trading_days: int = Query(10, ge=1, le=30), period: int = Query(5, ge=1, le=60), db: Session = Depends(get_db)) -> dict[str, Any]:
     try:
@@ -559,6 +584,27 @@ def _run_full_market_history_background(days: int, batch_size: int, limit: int |
         publish_event("jobs.updated", {"job_type": "full_market_daily_kline", "status": "failed"})
     finally:
         _full_market_history_lock.release()
+
+
+def _run_missing_daily_kline_background(days: int, batch_size: int, limit: int | None) -> None:
+    try:
+        with SessionLocal() as db:
+            AkshareCollector().collect_missing_daily_kline(db, days=days, batch_size=batch_size, limit=limit)
+    except Exception as exc:
+        with SessionLocal() as db:
+            record_collection_job(
+                db,
+                "missing_daily_kline",
+                "akshare",
+                "failed",
+                {"inserted": 0, "updated": 0, "failed": 1},
+                {"days": days, "batch_size": batch_size, "limit": limit},
+                str(exc),
+            )
+            db.commit()
+        publish_event("jobs.updated", {"job_type": "missing_daily_kline", "status": "failed"})
+    finally:
+        _missing_daily_kline_lock.release()
 
 
 def _market_sort_column(sort_by: str) -> Any:

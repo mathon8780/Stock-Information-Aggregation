@@ -1,4 +1,4 @@
-import type { Advice, CollectionJob, IntradayKline, Kline, NewsItem, NewsLlmConfig, NewsLlmConfigPayload, NotificationItem, Paged, Snapshot, Stock, WatchItem } from '../types';
+import type { Advice, CollectionJob, CollectorStartResult, IntradayKline, Kline, NewsItem, NewsLlmConfig, NewsLlmConfigPayload, NotificationItem, Paged, Snapshot, Stock, WatchItem } from '../types';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000/api/v1';
 
@@ -59,7 +59,8 @@ export const api = {
   collectBootstrap: () => request('/collector/real/bootstrap', { method: 'POST' }),
   collectMarket: () => request('/collector/real/market', { method: 'POST' }),
   collectHistory: () => request('/collector/real/history', { method: 'POST' }),
-  collectFullMarketHistory: () => request('/collector/real/full-market-history/start?days=365', { method: 'POST' }),
+  collectFullMarketHistory: () => request<CollectorStartResult>('/collector/real/full-market-history/start?days=365', { method: 'POST' }),
+  collectMissingDailyKline: () => request<CollectorStartResult>('/collector/real/missing-daily-kline/start?days=365', { method: 'POST' }),
   collectIntraday: () => request('/collector/real/intraday', { method: 'POST' }),
   collectStockIntraday: (code: string, period = 1, tradingDays = 1) => request(`/collector/real/intraday/${code}?period=${period}&trading_days=${tradingDays}`, { method: 'POST' }),
   collectNews: () => request('/collector/real/news', { method: 'POST' }),
