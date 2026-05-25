@@ -326,6 +326,33 @@ a,
   text-overflow: ellipsis;
 }
 
+.watch-drag-handle {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  color: #667085;
+  cursor: grab;
+}
+
+.watch-drag-handle:active {
+  cursor: grabbing;
+}
+
+.watch-drag-handle:hover {
+  color: #0f766e;
+  background: #e7f6f2;
+}
+
+.watch-row-dragging > td {
+  opacity: 0.54;
+  background: #f4f7f8 !important;
+}
+
+.watch-row-drop-target > td {
+  background: #ecfdf5 !important;
+  box-shadow: inset 3px 0 0 #0f766e;
+}
+
 .table-section-title {
   padding: 14px 16px 6px;
   color: var(--ink-muted);

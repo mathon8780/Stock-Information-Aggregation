@@ -26,6 +26,13 @@ def _int(name: str, default: int) -> int:
     return int(raw)
 
 
+def _optional_int(name: str) -> int | None:
+    raw = os.getenv(name)
+    if raw is None or raw == "":
+        return None
+    return int(raw)
+
+
 def _bounded_int(name: str, default: int, minimum: int, maximum: int) -> int:
     return max(minimum, min(maximum, _int(name, default)))
 
@@ -66,6 +73,21 @@ class Settings:
     news_auto_simplify_limit: int = _int("NEWS_AUTO_SIMPLIFY_LIMIT", 50)
     advice_interval_seconds: int = _int("ADVICE_INTERVAL_SECONDS", 900)
     news_source_request_interval_seconds: int = _int("NEWS_SOURCE_REQUEST_INTERVAL_SECONDS", 2)
+
+    startup_sync_enabled: bool = _bool("STARTUP_SYNC_ENABLED", not _database_url().startswith("sqlite"))
+    startup_sync_watchlist_enabled: bool = _bool("STARTUP_SYNC_WATCHLIST_ENABLED", True)
+    startup_sync_market_enabled: bool = _bool("STARTUP_SYNC_MARKET_ENABLED", True)
+    startup_sync_history_enabled: bool = _bool("STARTUP_SYNC_HISTORY_ENABLED", True)
+    startup_sync_history_days: int = _bounded_int("STARTUP_SYNC_HISTORY_DAYS", 365, 1, 3650)
+    startup_sync_intraday_enabled: bool = _bool("STARTUP_SYNC_INTRADAY_ENABLED", True)
+    startup_sync_intraday_trading_days: int = _bounded_int("STARTUP_SYNC_INTRADAY_TRADING_DAYS", 10, 1, 30)
+    startup_sync_intraday_period_minutes: int = _bounded_int("STARTUP_SYNC_INTRADAY_PERIOD_MINUTES", 5, 1, 60)
+    startup_sync_analysis_enabled: bool = _bool("STARTUP_SYNC_ANALYSIS_ENABLED", True)
+    startup_sync_news_enabled: bool = _bool("STARTUP_SYNC_NEWS_ENABLED", True)
+    startup_sync_full_market_history_enabled: bool = _bool("STARTUP_SYNC_FULL_MARKET_HISTORY_ENABLED", False)
+    startup_sync_full_market_history_days: int = _bounded_int("STARTUP_SYNC_FULL_MARKET_HISTORY_DAYS", _int("FULL_MARKET_HISTORY_DAYS", 365), 1, 3650)
+    startup_sync_full_market_history_batch_size: int = _bounded_int("STARTUP_SYNC_FULL_MARKET_HISTORY_BATCH_SIZE", _int("FULL_MARKET_HISTORY_BATCH_SIZE", 30), 1, 200)
+    startup_sync_full_market_history_limit: int | None = _optional_int("STARTUP_SYNC_FULL_MARKET_HISTORY_LIMIT")
 
     request_min_interval_seconds: int = _int("REQUEST_MIN_INTERVAL_SECONDS", 3)
     fetch_failure_downgrade_threshold: int = _int("FETCH_FAILURE_DOWNGRADE_THRESHOLD", 3)

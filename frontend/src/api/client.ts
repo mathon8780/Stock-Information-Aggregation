@@ -2,9 +2,31 @@ import type { Advice, CollectionJob, IntradayKline, Kline, NewsItem, NewsLlmConf
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000/api/v1';
 
+export class ApiError extends Error {
+  status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+  }
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, { headers: { 'Content-Type': 'application/json', ...(init?.headers ?? {}) }, ...init });
-  if (!response.ok) throw new Error((await response.text()) || `HTTP ${response.status}`);
+  if (!response.ok) {
+    const text = await response.text();
+    let message = text || `HTTP ${response.status}`;
+    try {
+      const body = JSON.parse(text) as { detail?: unknown; message?: unknown };
+      const detail = body.detail ?? body.message;
+      if (typeof detail === 'string') message = detail;
+      else if (Array.isArray(detail)) message = detail.map((item) => item?.msg).filter(Boolean).join('；') || message;
+    } catch {
+      // Keep the response text when it is not JSON.
+    }
+    throw new ApiError(message, response.status);
+  }
   return (await response.json()) as T;
 }
 

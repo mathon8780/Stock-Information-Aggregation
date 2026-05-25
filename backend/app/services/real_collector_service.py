@@ -58,8 +58,8 @@ class AkshareCollector:
             Base.metadata.create_all(bind=engine)
             init_db()
 
-        market_summary = self.collect_market_snapshot(db)
         watch_summary = ensure_default_watchlist(db)
+        market_summary = self.collect_market_snapshot(db)
         history_summary = self.collect_history(db)
         try:
             advice_rows = analyze_watchlist(db)
@@ -86,7 +86,7 @@ class AkshareCollector:
     def collect_market_snapshot(self, db: Session) -> dict[str, Any]:
         try:
             now = datetime.now(timezone.utc)
-            stock_items = self._build_stock_spot_items(now)
+            stock_items = self._build_stock_spot_items(now, _watchlist_stock_targets(db))
             index_items, failed_items = self._build_index_spot_items(now)
             payload = {
                 "job_type": "market_snapshot",
@@ -106,7 +106,7 @@ class AkshareCollector:
         start = end - timedelta(days=days)
         items: list[dict[str, Any]] = []
         failed_items: list[dict[str, Any]] = []
-        targets = [*DEFAULT_WATCHLIST, *MAIN_INDICES]
+        targets = _unique_targets([*_watchlist_stock_targets(db), *MAIN_INDICES])
 
         for idx, target in enumerate(targets):
             if idx:
@@ -139,6 +139,42 @@ class AkshareCollector:
         }
         summary = ingest_kline_payload(db, payload)
         summary["failed_items"] = failed_items
+        return summary
+
+    def collect_stock_history(self, db: Session, code: str, days: int = 365) -> dict[str, Any]:
+        normalized_code = normalize_a_code(code)
+        stock = db.execute(select(Stock).where(Stock.code == normalized_code)).scalar_one_or_none()
+        if stock is None:
+            raise ValueError(f"stock {normalized_code} is not found")
+        end = date.today()
+        start = end - timedelta(days=days)
+        target = _stock_target(stock)
+        try:
+            rows = self._call_with_backoff(lambda: self._history_rows_for_target(target, start, end), target["code"])
+        except Exception as exc:
+            record_collection_job(
+                db,
+                "daily_kline",
+                "akshare",
+                "failed",
+                {"inserted": 0, "updated": 0, "failed": 1},
+                {"code": target["code"], "days": days},
+                str(exc),
+            )
+            db.commit()
+            return {"inserted": 0, "updated": 0, "failed": 1, "failed_items": [{"code": target["code"], "name": target["name"], "error": str(exc)}]}
+
+        payload = {
+            "job_type": "daily_kline",
+            "source": "akshare",
+            "fetched_at": datetime.now(timezone.utc).isoformat(),
+            "items": rows,
+            "failed_items": [],
+        }
+        summary = ingest_kline_payload(db, payload)
+        summary["code"] = target["code"]
+        summary["days"] = days
+        summary["failed_items"] = []
         return summary
 
     def collect_full_market_history(
@@ -215,12 +251,12 @@ class AkshareCollector:
     def collect_intraday(self, db: Session, trading_days: int = 10, period_minutes: int = 5) -> dict[str, Any]:
         if period_minutes not in {1, 5, 15, 30, 60}:
             raise ValueError("period_minutes must be one of 1, 5, 15, 30, 60")
-        ensure_default_watchlist(db)
+        targets = _watchlist_stock_targets(db)
         start_dt, end_dt = _intraday_window(trading_days)
         items: list[dict[str, Any]] = []
         failed_items: list[dict[str, Any]] = []
 
-        for idx, target in enumerate(DEFAULT_WATCHLIST):
+        for idx, target in enumerate(targets):
             if idx:
                 self.sleep(self.request_interval_seconds)
             try:
@@ -239,7 +275,7 @@ class AkshareCollector:
                 "akshare",
                 "failed",
                 {"inserted": 0, "updated": 0, "failed": len(failed_items)},
-                {"trading_days": trading_days, "period_minutes": period_minutes, "targets": [item["code"] for item in DEFAULT_WATCHLIST]},
+                {"trading_days": trading_days, "period_minutes": period_minutes, "targets": [item["code"] for item in targets]},
                 "; ".join(item["error"] for item in failed_items[:3]),
             )
             db.commit()
@@ -306,11 +342,54 @@ class AkshareCollector:
         summary["period_minutes"] = period_minutes
         return summary
 
-    def _build_stock_spot_items(self, now: datetime) -> list[dict[str, Any]]:
+    def collect_stock_snapshot(self, db: Session, code: str) -> dict[str, Any]:
+        normalized_code = normalize_a_code(code)
+        now = datetime.now(timezone.utc)
+        items = [item for item in self._build_stock_spot_items(now, _watchlist_stock_targets(db)) if item["code"] == normalized_code]
+        if not items:
+            record_collection_job(
+                db,
+                "market_snapshot",
+                "akshare",
+                "failed",
+                {"inserted_market": 0, "inserted_watch": 0, "skipped": 0, "failed": 1},
+                {"code": normalized_code},
+                f"stock {normalized_code} is not found in AKShare spot data",
+            )
+            db.commit()
+            return {"inserted_market": 0, "inserted_watch": 0, "skipped": 0, "failed": 1, "code": normalized_code}
+        payload = {
+            "job_type": "market_snapshot",
+            "source": "akshare",
+            "fetched_at": now.isoformat(),
+            "items": items,
+            "failed_items": [],
+        }
+        summary = ingest_market_payload(db, payload)
+        summary["code"] = normalized_code
+        return summary
+
+    def resolve_stock_target(self, query: str) -> dict[str, str] | None:
+        keyword = query.strip()
+        if not keyword:
+            return None
+        normalized_code = normalize_a_code(keyword)
+        keyword_lower = keyword.lower()
+        targets = self._full_market_stock_targets()
+        for target in targets:
+            if target["code"] == normalized_code or target["code"].split(".")[0] == keyword:
+                return target
+        for target in targets:
+            if keyword_lower in target["name"].lower() or keyword_lower in str(target.get("industry") or "").lower():
+                return target
+        return None
+
+    def _build_stock_spot_items(self, now: datetime, watch_targets: list[dict[str, str]] | None = None) -> list[dict[str, Any]]:
         df = self._stock_spot_frame()
         items: list[dict[str, Any]] = []
-        watch_codes = {item["code"] for item in DEFAULT_WATCHLIST}
-        watch_meta = {item["code"]: item for item in DEFAULT_WATCHLIST}
+        watch_targets = DEFAULT_WATCHLIST if watch_targets is None else watch_targets
+        watch_codes = {item["code"] for item in watch_targets}
+        watch_meta = {item["code"]: item for item in watch_targets}
         for row in _records(df):
             raw_code = str(_value(row, "代码", "code") or "").strip()
             if not raw_code:
@@ -678,6 +757,33 @@ def ensure_default_watchlist(db: Session) -> dict[str, Any]:
             existing.display_order = order
     db.commit()
     return {"default_watchlist_size": len(DEFAULT_WATCHLIST), "inserted": inserted}
+
+
+def _stock_target(stock: Stock) -> dict[str, str]:
+    return {
+        "code": stock.code,
+        "name": stock.name,
+        "market": stock.market,
+        "security_type": stock.security_type,
+        "industry": stock.industry or "",
+    }
+
+
+def _watchlist_stock_targets(db: Session) -> list[dict[str, str]]:
+    rows = db.execute(select(Watchlist).join(Stock).order_by(Watchlist.display_order, Stock.code)).scalars().all()
+    return [_stock_target(item.stock) for item in rows]
+
+
+def _unique_targets(targets: list[dict[str, str]]) -> list[dict[str, str]]:
+    seen: set[str] = set()
+    result: list[dict[str, str]] = []
+    for target in targets:
+        code = target["code"]
+        if code in seen:
+            continue
+        seen.add(code)
+        result.append(target)
+    return result
 
 
 def build_indicator_preview(rows: Iterable[dict[str, Any]]) -> dict[str, Any]:

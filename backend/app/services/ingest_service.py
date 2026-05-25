@@ -192,10 +192,12 @@ def ingest_intraday_kline_payload(db: Session, payload: dict[str, Any]) -> dict[
     items = payload.get("items") or []
     source = payload.get("source", "akshare")
     inserted = updated = 0
+    pending_keys: set[tuple[int, int, datetime]] = set()
     for item in items:
         stock = get_or_create_stock(db, item)
         bar_time = parse_datetime(item.get("bar_time")).replace(tzinfo=None)
         period_minutes = int(item.get("period_minutes") or 5)
+        key = (stock.id, period_minutes, bar_time)
         row = db.get(KlineIntraday, {"stock_id": stock.id, "period_minutes": period_minutes, "bar_time": bar_time})
         values = {
             "open": decimal_or_none(item.get("open")),
@@ -211,7 +213,10 @@ def ingest_intraday_kline_payload(db: Session, payload: dict[str, Any]) -> dict[
             "source": source,
         }
         if row is None:
+            if key in pending_keys:
+                continue
             db.add(KlineIntraday(stock_id=stock.id, period_minutes=period_minutes, bar_time=bar_time, **values))
+            pending_keys.add(key)
             inserted += 1
         else:
             for field, value in values.items():

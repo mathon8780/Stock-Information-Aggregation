@@ -25,6 +25,8 @@ from app.services.news_collector_service import NewsCollector
 from app.services.notification_service import update_notification_result
 from app.services.real_collector_service import AkshareCollector, DEFAULT_WATCHLIST
 from app.services.serializers import advice_dict, intraday_kline_dict, job_dict, kline_dict, news_dict, notification_dict, snapshot_dict, stock_dict, watchlist_dict
+from app.services.startup_sync_service import startup_sync_status
+from app.services.watch_stock_sync_service import enqueue_watch_stock_sync, run_watch_stock_sync_job
 
 
 router = APIRouter(prefix="/api/v1")
@@ -74,6 +76,22 @@ def get_settings(db: Session = Depends(get_db)) -> dict[str, Any]:
         "default_watchlist": DEFAULT_WATCHLIST,
         "collector_intervals": {"market_snapshot_seconds": settings.market_snapshot_interval_seconds, "watch_snapshot_seconds": settings.watch_snapshot_interval_seconds, "news_seconds": settings.news_interval_seconds, "news_auto_sync_seconds": settings.news_auto_sync_interval_seconds, "advice_seconds": settings.advice_interval_seconds},
         "risk_control": {"request_min_interval_seconds": settings.request_min_interval_seconds, "fetch_failure_downgrade_threshold": settings.fetch_failure_downgrade_threshold, "max_watchlist_size": settings.max_watchlist_size},
+        "startup_sync": {
+            "enabled": settings.startup_sync_enabled,
+            "watchlist": settings.startup_sync_watchlist_enabled,
+            "market": settings.startup_sync_market_enabled,
+            "history": {"enabled": settings.startup_sync_history_enabled, "days": settings.startup_sync_history_days},
+            "intraday": {"enabled": settings.startup_sync_intraday_enabled, "trading_days": settings.startup_sync_intraday_trading_days, "period_minutes": settings.startup_sync_intraday_period_minutes},
+            "news": settings.startup_sync_news_enabled,
+            "analysis": settings.startup_sync_analysis_enabled,
+            "full_market_history": {
+                "enabled": settings.startup_sync_full_market_history_enabled,
+                "days": settings.startup_sync_full_market_history_days,
+                "batch_size": settings.startup_sync_full_market_history_batch_size,
+                "limit": settings.startup_sync_full_market_history_limit,
+            },
+            "status": startup_sync_status(),
+        },
         "news": {
             "source": "newsnow",
             "llm_provider": news_config["provider"],
@@ -301,16 +319,21 @@ def get_watchlist(db: Session = Depends(get_db)) -> dict[str, Any]:
 
 
 @router.post("/watchlist")
-def add_watch(request: AddWatchRequest, db: Session = Depends(get_db)) -> dict[str, Any]:
+def add_watch(request: AddWatchRequest, background_tasks: BackgroundTasks, db: Session = Depends(get_db)) -> dict[str, Any]:
     current_count = db.execute(select(func.count()).select_from(Watchlist)).scalar_one()
     if current_count >= settings.max_watchlist_size:
         raise HTTPException(status_code=400, detail="Watchlist size limit reached")
-    stock = _get_stock_or_404(db, request.code)
+    stock = _resolve_stock_for_watch(db, request.code)
     if _watch_item(db, stock.id) is not None:
         advice = _latest_advice(db, stock.id)
-        return {"status": "exists", "item": stock_dict(stock), "analysis_status": "skipped", "latest_advice": advice_dict(advice, stock) if advice else None}
+        job = enqueue_watch_stock_sync(db, stock.code, reason="watchlist_exists")
+        db.commit()
+        background_tasks.add_task(run_watch_stock_sync_job, job.id)
+        return {"status": "exists", "item": stock_dict(stock), "analysis_status": "skipped", "sync_status": "queued", "sync_job_id": job.id, "latest_advice": advice_dict(advice, stock) if advice else None}
     db.add(Watchlist(stock_id=stock.id, display_order=current_count + 1, alert_enabled=request.alert_enabled, alert_threshold_pct=Decimal(str(request.alert_threshold_pct)), strategy_push_enabled=request.strategy_push_enabled))
+    job = enqueue_watch_stock_sync(db, stock.code, reason="watchlist_add")
     db.commit()
+    background_tasks.add_task(run_watch_stock_sync_job, job.id)
     analysis_status = "success"
     latest_advice = None
     analysis_error = None
@@ -321,7 +344,7 @@ def add_watch(request: AddWatchRequest, db: Session = Depends(get_db)) -> dict[s
         analysis_status = "failed"
         analysis_error = str(exc)
     publish_event("watchlist.updated", {"code": stock.code, "action": "created"})
-    return {"status": "created", "item": stock_dict(stock), "analysis_status": analysis_status, "latest_advice": latest_advice, "analysis_error": analysis_error}
+    return {"status": "created", "item": stock_dict(stock), "analysis_status": analysis_status, "sync_status": "queued", "sync_job_id": job.id, "latest_advice": latest_advice, "analysis_error": analysis_error}
 
 
 @router.patch("/watchlist/{code}")
@@ -455,6 +478,42 @@ def _get_stock_or_404(db: Session, code: str) -> Stock:
     stock = db.execute(select(Stock).where(Stock.code == normalize_code(code))).scalar_one_or_none()
     if stock is None:
         raise HTTPException(status_code=404, detail="Stock not found")
+    return stock
+
+
+def _resolve_stock_for_watch(db: Session, value: str) -> Stock:
+    query = value.strip()
+    if not query:
+        raise HTTPException(status_code=400, detail="请输入股票代码或名称")
+    normalized_code = normalize_code(query)
+    stock = db.execute(select(Stock).where(Stock.code == normalized_code)).scalar_one_or_none()
+    if stock is not None:
+        return stock
+    if "." not in query:
+        stock = db.execute(select(Stock).where(Stock.code.like(f"{query.upper()}.%"))).scalar_one_or_none()
+        if stock is not None:
+            return stock
+    try:
+        target = AkshareCollector().resolve_stock_target(query)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"本地未找到该股票，尝试从数据源解析失败：{exc}") from exc
+    if target is None:
+        raise HTTPException(status_code=404, detail="未找到匹配股票，请输入 6 位股票代码或先同步全市场股票列表")
+    stock = db.execute(select(Stock).where(Stock.code == target["code"])).scalar_one_or_none()
+    if stock is None:
+        stock = Stock(
+            code=target["code"],
+            name=target["name"],
+            market=target["market"],
+            security_type=target.get("security_type") or "stock",
+            industry=target.get("industry"),
+        )
+        db.add(stock)
+        db.flush()
+    else:
+        stock.name = target["name"] or stock.name
+        stock.market = target["market"] or stock.market
+        stock.industry = target.get("industry") or stock.industry
     return stock
 
 

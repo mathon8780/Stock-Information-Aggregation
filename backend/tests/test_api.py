@@ -11,8 +11,8 @@ from sqlalchemy import event
 from app.api import router as api_router
 from app.main import app
 from app.database import SessionLocal, engine
-from app.models import CollectionJob, KlineDaily, News, Notification, Stock, TradingAdvice, Watchlist
-from app.services import news_auto_sync_service
+from app.models import CollectionJob, KlineDaily, KlineIntraday, News, Notification, Stock, TradingAdvice, Watchlist
+from app.services import news_auto_sync_service, watch_stock_sync_service
 from app.services.event_bus import publish_event, subscribe, unsubscribe
 from app.services.news_collector_service import NewsCollector, OpenAICompatibleNewsFormatter
 from app.services.real_collector_service import AkshareCollector
@@ -71,6 +71,35 @@ class FakeBulkDailyAkshare(FakeInfoAkshare):
 
     def stock_zh_a_daily(self, symbol: str, start_date: str, end_date: str, adjust: str):
         return history_frame()
+
+
+class FakeResolveAkshare(FakeAkshare):
+    def stock_zh_a_spot_em(self):
+        base = super().stock_zh_a_spot_em()
+        extra = pd.DataFrame(
+            [
+                {
+                    "代码": "300999",
+                    "名称": "测试光模块",
+                    "最新价": 50.0,
+                    "涨跌幅": 1.0,
+                    "涨跌额": 0.5,
+                    "成交量": 1000,
+                    "成交额": 50000000,
+                    "今开": 49.5,
+                    "最高": 51.0,
+                    "最低": 49.0,
+                    "振幅": 4.0,
+                    "换手率": 1.2,
+                    "量比": 1.1,
+                    "市盈率-动态": 30,
+                    "市净率": 4,
+                    "总市值": 5000000000,
+                    "流通市值": 4500000000,
+                }
+            ]
+        )
+        return pd.concat([base, extra], ignore_index=True)
 
 
 def history_frame():
@@ -154,6 +183,7 @@ def test_trigger_watchlist_analysis_route_is_not_shadowed(monkeypatch):
 
 def test_add_watch_auto_triggers_analysis(monkeypatch):
     monkeypatch.setattr(api_router, "AkshareCollector", lambda: AkshareCollector(FakeInfoAkshare(), sleep_fn=lambda _: None))
+    monkeypatch.setattr(watch_stock_sync_service, "AkshareCollector", lambda: AkshareCollector(FakeInfoAkshare(), sleep_fn=lambda _: None, backoff_seconds=[]))
     with TestClient(app) as client:
         client.post("/api/v1/collector/real/full-market-history?days=365&limit=1")
         with SessionLocal() as db:
@@ -167,11 +197,55 @@ def test_add_watch_auto_triggers_analysis(monkeypatch):
         body = response.json()
         assert body["status"] == "created"
         assert body["analysis_status"] == "success"
+        assert body["sync_status"] == "queued"
         assert body["latest_advice"]["code"] == "600000.SH"
 
         with SessionLocal() as db:
             stock = db.query(Stock).filter(Stock.code == "600000.SH").one()
-            assert db.query(TradingAdvice).filter(TradingAdvice.stock_id == stock.id).count() == 1
+            assert db.query(TradingAdvice).filter(TradingAdvice.stock_id == stock.id).count() >= 1
+            jobs = db.query(CollectionJob).filter(CollectionJob.job_type == "watch_stock_sync").all()
+            assert any((job.requested_payload or {}).get("code") == "600000.SH" for job in jobs)
+
+
+def test_add_watch_resolves_missing_stock_and_syncs_required_data(monkeypatch):
+    monkeypatch.setattr(api_router, "AkshareCollector", lambda: AkshareCollector(FakeResolveAkshare(), sleep_fn=lambda _: None, backoff_seconds=[]))
+    monkeypatch.setattr(watch_stock_sync_service, "AkshareCollector", lambda: AkshareCollector(FakeResolveAkshare(), sleep_fn=lambda _: None, backoff_seconds=[]))
+    with TestClient(app) as client:
+        client.post("/api/v1/collector/real/bootstrap")
+        response = client.post("/api/v1/watchlist", json={"code": "300999"})
+        assert response.status_code == 200
+        body = response.json()
+        assert body["status"] == "created"
+        assert body["item"]["code"] == "300999.SZ"
+        assert body["sync_status"] == "queued"
+
+    with SessionLocal() as db:
+        stock = db.query(Stock).filter(Stock.code == "300999.SZ").one()
+        assert db.query(Watchlist).filter(Watchlist.stock_id == stock.id).count() == 1
+        assert db.query(KlineDaily).filter(KlineDaily.stock_id == stock.id).count() > 0
+        assert db.query(CollectionJob).filter(CollectionJob.job_type == "watch_stock_sync").order_by(CollectionJob.id.desc()).first().status == "success"
+
+
+def test_remove_watch_keeps_collected_kline_data(monkeypatch):
+    monkeypatch.setattr(api_router, "AkshareCollector", lambda: AkshareCollector(FakeAkshare(), sleep_fn=lambda _: None, backoff_seconds=[]))
+    with TestClient(app) as client:
+        client.post("/api/v1/collector/real/bootstrap")
+        client.post("/api/v1/collector/real/intraday")
+        with SessionLocal() as db:
+            stock = db.query(Stock).filter(Stock.code == "300308.SZ").one()
+            daily_count = db.query(KlineDaily).filter(KlineDaily.stock_id == stock.id).count()
+            intraday_count = db.query(KlineIntraday).filter(KlineIntraday.stock_id == stock.id).count()
+            assert daily_count > 0
+            assert intraday_count > 0
+
+        response = client.delete("/api/v1/watchlist/300308.SZ")
+        assert response.status_code == 200
+
+    with SessionLocal() as db:
+        stock = db.query(Stock).filter(Stock.code == "300308.SZ").one()
+        assert db.query(Watchlist).filter(Watchlist.stock_id == stock.id).count() == 0
+        assert db.query(KlineDaily).filter(KlineDaily.stock_id == stock.id).count() == daily_count
+        assert db.query(KlineIntraday).filter(KlineIntraday.stock_id == stock.id).count() == intraday_count
 
 
 def test_collect_and_query_watchlist_intraday_5m(monkeypatch):
@@ -309,6 +383,7 @@ def test_settings_watchlist_limit_is_20():
         assert response.json()["news"]["llm_provider"] == "deepseek"
         assert response.json()["news"]["api_base_url"] == "https://api.deepseek.com"
         assert response.json()["news"]["api_key_configured"] is False
+        assert response.json()["startup_sync"]["enabled"] is False
 
 
 class FakeNewsFetcher:

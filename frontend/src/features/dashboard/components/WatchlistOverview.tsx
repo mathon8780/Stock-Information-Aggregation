@@ -1,9 +1,9 @@
-import { DeleteOutlined, PlusOutlined, StarFilled } from '@ant-design/icons';
-import { Button, Card, Popconfirm, Select, Space, Switch, Table, Tag, Typography, message } from 'antd';
+import { DeleteOutlined, HolderOutlined, PlusOutlined, StarFilled } from '@ant-design/icons';
+import { Button, Card, Popconfirm, Select, Space, Switch, Table, Tag, Tooltip, Typography, message } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
-import { api, formatNumber } from '../../../api/client';
+import { ApiError, api, formatNumber } from '../../../api/client';
 import PriceText from '../../../components/PriceText';
 import SignalTag from '../../../components/SignalTag';
 import StockLink from '../../../components/StockLink';
@@ -41,9 +41,21 @@ export default function WatchlistOverview({ watchlist, maxSize, onChanged }: Wat
   const [adding, setAdding] = useState(false);
   const [removingCode, setRemovingCode] = useState<string>();
   const [updatingKey, setUpdatingKey] = useState<string>();
+  const [movingCode, setMovingCode] = useState<string>();
+  const [draggingCode, setDraggingCode] = useState<string>();
+  const [dragOverCode, setDragOverCode] = useState<string>();
 
   const watchCodes = useMemo(() => new Set(watchlist.map((item) => item.stock.code)), [watchlist]);
+  const sortedWatchlist = useMemo(
+    () => [...watchlist].sort((a, b) => a.display_order - b.display_order || a.stock.code.localeCompare(b.stock.code)),
+    [watchlist],
+  );
+  const [orderedWatchlist, setOrderedWatchlist] = useState<WatchItem[]>(sortedWatchlist);
   const isFull = maxSize > 0 && watchlist.length >= maxSize;
+
+  useEffect(() => {
+    setOrderedWatchlist(sortedWatchlist);
+  }, [sortedWatchlist]);
 
   useEffect(() => {
     const keyword = query.trim();
@@ -70,8 +82,8 @@ export default function WatchlistOverview({ watchlist, maxSize, onChanged }: Wat
     return () => window.clearTimeout(timer);
   }, [query, watchCodes]);
 
-  const addWatch = async () => {
-    const code = (selectedCode || query).trim().toUpperCase();
+  const addWatch = async (explicitCode?: string) => {
+    const code = (explicitCode || selectedCode || query).trim().toUpperCase();
     if (!code) {
       message.warning('请输入股票代码或名称');
       return;
@@ -82,14 +94,18 @@ export default function WatchlistOverview({ watchlist, maxSize, onChanged }: Wat
     }
     setAdding(true);
     try {
-      await api.addWatch(code);
-      message.success('已加入自选股');
+      const result = await api.addWatch(code) as { sync_status?: string };
+      message.success(result.sync_status === 'queued' ? '已加入自选股，正在后台同步数据' : '已加入自选股');
       setQuery('');
       setSelectedCode(undefined);
       setOptions([]);
       onChanged?.();
     } catch (error) {
-      message.error(error instanceof Error ? error.message : '加入自选股失败');
+      if (error instanceof ApiError && error.status === 404) {
+        message.warning(error.message || '未找到匹配股票');
+      } else {
+        message.error(error instanceof Error ? error.message : '加入自选股失败');
+      }
     } finally {
       setAdding(false);
     }
@@ -108,7 +124,7 @@ export default function WatchlistOverview({ watchlist, maxSize, onChanged }: Wat
     }
   };
 
-  const updateWatch = async (code: string, payload: { alert_enabled?: boolean; strategy_push_enabled?: boolean }) => {
+  const updateWatch = async (code: string, payload: { alert_enabled?: boolean; strategy_push_enabled?: boolean; display_order?: number }) => {
     const key = `${code}:${Object.keys(payload)[0]}`;
     setUpdatingKey(key);
     try {
@@ -119,6 +135,40 @@ export default function WatchlistOverview({ watchlist, maxSize, onChanged }: Wat
     } finally {
       setUpdatingKey(undefined);
     }
+  };
+
+  const persistOrder = async (nextOrder: WatchItem[], movedCode: string, previousOrder: WatchItem[]) => {
+    setMovingCode(movedCode);
+    try {
+      await Promise.all(
+        nextOrder.map((row, index) => {
+          const displayOrder = index + 1;
+          return row.display_order === displayOrder
+            ? Promise.resolve()
+            : api.updateWatch(row.stock.code, { display_order: displayOrder });
+        }),
+      );
+      message.success('自选股排序已更新');
+      onChanged?.();
+    } catch (error) {
+      setOrderedWatchlist(previousOrder);
+      message.error(error instanceof Error ? error.message : '更新自选股排序失败');
+    } finally {
+      setMovingCode(undefined);
+    }
+  };
+
+  const reorderWatchlist = async (sourceCode: string, targetCode: string) => {
+    if (!sourceCode || sourceCode === targetCode || movingCode) return;
+    const previousOrder = orderedWatchlist;
+    const sourceIndex = previousOrder.findIndex((item) => item.stock.code === sourceCode);
+    const targetIndex = previousOrder.findIndex((item) => item.stock.code === targetCode);
+    if (sourceIndex < 0 || targetIndex < 0) return;
+    const nextOrder = [...previousOrder];
+    const [item] = nextOrder.splice(sourceIndex, 1);
+    nextOrder.splice(targetIndex, 0, item);
+    setOrderedWatchlist(nextOrder);
+    await persistOrder(nextOrder, sourceCode, previousOrder);
   };
 
   const columns: ColumnsType<WatchItem> = [
@@ -149,6 +199,33 @@ export default function WatchlistOverview({ watchlist, maxSize, onChanged }: Wat
           loading={updatingKey === `${row.stock.code}:strategy_push_enabled`}
           onChange={(checked) => updateWatch(row.stock.code, { strategy_push_enabled: checked })}
         />
+      ),
+    },
+    {
+      title: '排序',
+      width: 54,
+      fixed: 'left',
+      render: (_: unknown, row) => (
+        <Tooltip title="拖动排序">
+          <Button
+            type="text"
+            size="small"
+            className="watch-drag-handle"
+            aria-label={`拖动排序 ${row.stock.code}`}
+            icon={<HolderOutlined />}
+            draggable={!movingCode}
+            loading={movingCode === row.stock.code}
+            onDragStart={(event) => {
+              setDraggingCode(row.stock.code);
+              event.dataTransfer.effectAllowed = 'move';
+              event.dataTransfer.setData('text/plain', row.stock.code);
+            }}
+            onDragEnd={() => {
+              setDraggingCode(undefined);
+              setDragOverCode(undefined);
+            }}
+          />
+        </Tooltip>
       ),
     },
     {
@@ -203,7 +280,11 @@ export default function WatchlistOverview({ watchlist, maxSize, onChanged }: Wat
               if (value) setQuery('');
             }}
             onInputKeyDown={(event) => {
-              if (event.key === 'Enter') void addWatch();
+              if (event.key === 'Enter') {
+                event.preventDefault();
+                event.stopPropagation();
+                if (!adding) void addWatch();
+              }
             }}
             className="watchlist-search"
             notFoundContent={query.trim() ? '未找到匹配股票' : '输入股票代码或名称'}
@@ -213,7 +294,7 @@ export default function WatchlistOverview({ watchlist, maxSize, onChanged }: Wat
             icon={<PlusOutlined />}
             loading={adding}
             disabled={isFull}
-            onClick={addWatch}
+            onClick={() => addWatch()}
           >
             加入自选
           </Button>
@@ -224,9 +305,31 @@ export default function WatchlistOverview({ watchlist, maxSize, onChanged }: Wat
         size="small"
         rowKey={(row) => row.stock.code}
         pagination={false}
-        dataSource={watchlist}
+        dataSource={orderedWatchlist}
         columns={columns}
-        scroll={{ x: 780 }}
+        onRow={(row) => ({
+          className: [
+            row.stock.code === draggingCode ? 'watch-row-dragging' : '',
+            row.stock.code === dragOverCode && row.stock.code !== draggingCode ? 'watch-row-drop-target' : '',
+          ].filter(Boolean).join(' '),
+          onDragOver: (event) => {
+            if (!draggingCode || draggingCode === row.stock.code) return;
+            event.preventDefault();
+            event.dataTransfer.dropEffect = 'move';
+            setDragOverCode(row.stock.code);
+          },
+          onDragLeave: () => {
+            if (dragOverCode === row.stock.code) setDragOverCode(undefined);
+          },
+          onDrop: (event) => {
+            event.preventDefault();
+            const sourceCode = draggingCode || event.dataTransfer.getData('text/plain');
+            setDraggingCode(undefined);
+            setDragOverCode(undefined);
+            void reorderWatchlist(sourceCode, row.stock.code);
+          },
+        })}
+        scroll={{ x: 880 }}
       />
     </Card>
   );
