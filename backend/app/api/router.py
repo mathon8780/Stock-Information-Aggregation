@@ -15,14 +15,13 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.database import SessionLocal, get_db
 from app.models import CollectionJob, KlineDaily, KlineIntraday, MarketSnapshot, News, Notification, Stock, TradingAdvice, WatchSnapshot, Watchlist
-from app.schemas import AddWatchRequest, NewsLlmConfigRequest, NotificationResultRequest, UpdateWatchRequest
+from app.schemas import AddWatchRequest, NewsLlmConfigRequest, UpdateWatchRequest
 from app.services.analysis_service import DISCLAIMER, analyze_stock, analyze_watchlist
 from app.services.event_bus import publish_event, subscribe, unsubscribe
-from app.services.ingest_service import ingest_kline_payload, ingest_market_payload, ingest_news_payload, normalize_code, record_collection_job
+from app.services.ingest_service import normalize_code, record_collection_job
 from app.services.news_auto_sync_service import trigger_news_simplification
 from app.services.news_llm_config_service import news_llm_config_dict, save_news_llm_config
 from app.services.news_collector_service import NewsCollector
-from app.services.notification_service import update_notification_result
 from app.services.real_collector_service import AkshareCollector, DEFAULT_WATCHLIST
 from app.services.serializers import advice_dict, intraday_kline_dict, job_dict, kline_dict, news_dict, notification_dict, snapshot_dict, stock_dict, watchlist_dict
 from app.services.startup_sync_service import startup_sync_status
@@ -371,32 +370,6 @@ def delete_watch(code: str, db: Session = Depends(get_db)) -> dict[str, Any]:
     db.commit()
     publish_event("watchlist.updated", {"code": stock.code, "action": "deleted"})
     return {"status": "deleted", "code": stock.code}
-
-
-@router.post("/ingest/openclaw/market")
-def ingest_market(payload: dict[str, Any], db: Session = Depends(get_db)) -> dict[str, Any]:
-    return ingest_market_payload(db, payload, watch_only=payload.get("job_type") == "watch_snapshot")
-
-
-@router.post("/ingest/openclaw/kline")
-def ingest_kline(payload: dict[str, Any], db: Session = Depends(get_db)) -> dict[str, Any]:
-    return ingest_kline_payload(db, payload)
-
-
-@router.post("/ingest/openclaw/news")
-def ingest_news(payload: dict[str, Any], db: Session = Depends(get_db)) -> dict[str, Any]:
-    return ingest_news_payload(db, payload)
-
-
-@router.post("/ingest/openclaw/notification-result")
-def ingest_notification_result(request: NotificationResultRequest, db: Session = Depends(get_db)) -> dict[str, Any]:
-    try:
-        row = update_notification_result(db, request.notification_id, request.status, request.sent_at, request.error_message)
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-    db.commit()
-    publish_event("notifications.updated", {"notification_id": row.id, "status": row.status})
-    return notification_dict(row)
 
 
 @router.post("/collector/real/bootstrap")

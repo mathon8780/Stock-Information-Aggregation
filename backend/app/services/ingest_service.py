@@ -116,7 +116,7 @@ SNAPSHOT_FIELDS = {"price", "change_pct", "change_amount", "amount", "open", "hi
 
 def ingest_market_payload(db: Session, payload: dict[str, Any], watch_only: bool = False) -> dict[str, Any]:
     items = payload.get("items") or []
-    source = payload.get("source", "openclaw")
+    source = payload.get("source", "akshare")
     fetched_at = parse_datetime(payload.get("fetched_at"))
     inserted_market = inserted_watch = skipped = 0
     for item in items:
@@ -155,7 +155,7 @@ def ingest_market_payload(db: Session, payload: dict[str, Any], watch_only: bool
 
 def ingest_kline_payload(db: Session, payload: dict[str, Any]) -> dict[str, Any]:
     items = payload.get("items") or []
-    source = payload.get("source", "openclaw")
+    source = payload.get("source", "akshare")
     inserted = updated = 0
     for item in items:
         stock = get_or_create_stock(db, item)
@@ -232,7 +232,7 @@ def ingest_intraday_kline_payload(db: Session, payload: dict[str, Any]) -> dict[
 
 def ingest_news_payload(db: Session, payload: dict[str, Any]) -> dict[str, Any]:
     items = payload.get("items") or []
-    source = payload.get("source", "openclaw")
+    source = payload.get("source", "newsnow")
     fetched_at = parse_datetime(payload.get("fetched_at"))
     inserted = skipped = 0
     for item in items:

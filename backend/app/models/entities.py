@@ -223,7 +223,7 @@ class CollectionJob(Base):
     id: Mapped[int] = mapped_column(PK_TYPE, primary_key=True, autoincrement=True)
     job_type: Mapped[str] = mapped_column(String(32), index=True, nullable=False)
     status: Mapped[str] = mapped_column(String(16), index=True, nullable=False)
-    source: Mapped[str] = mapped_column(String(64), default="openclaw", nullable=False)
+    source: Mapped[str] = mapped_column(String(64), default="system", nullable=False)
     requested_payload: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     result_summary: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     error_message: Mapped[str | None] = mapped_column(Text)

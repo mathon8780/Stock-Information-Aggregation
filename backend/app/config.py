@@ -51,9 +51,6 @@ class Settings:
     auto_seed_demo_data: bool = _bool("AUTO_SEED_DEMO_DATA", False)
     database_url: str = _database_url()
 
-    backend_base_url: str = os.getenv("BACKEND_BASE_URL", "http://localhost:8000")
-    openclaw_local_token: str = os.getenv("OPENCLAW_LOCAL_TOKEN", "change_me")
-
     qqbot_target: str = os.getenv("QQBOT_TARGET", "configured_qqbot_default")
     qqbot_enable_price_alert: bool = _bool("QQBOT_ENABLE_PRICE_ALERT", True)
     qqbot_enable_strategy_alert: bool = _bool("QQBOT_ENABLE_STRATEGY_ALERT", True)
@@ -85,8 +82,8 @@ class Settings:
     startup_sync_analysis_enabled: bool = _bool("STARTUP_SYNC_ANALYSIS_ENABLED", True)
     startup_sync_news_enabled: bool = _bool("STARTUP_SYNC_NEWS_ENABLED", True)
     startup_sync_full_market_history_enabled: bool = _bool("STARTUP_SYNC_FULL_MARKET_HISTORY_ENABLED", False)
-    startup_sync_full_market_history_days: int = _bounded_int("STARTUP_SYNC_FULL_MARKET_HISTORY_DAYS", _int("FULL_MARKET_HISTORY_DAYS", 365), 1, 3650)
-    startup_sync_full_market_history_batch_size: int = _bounded_int("STARTUP_SYNC_FULL_MARKET_HISTORY_BATCH_SIZE", _int("FULL_MARKET_HISTORY_BATCH_SIZE", 30), 1, 200)
+    startup_sync_full_market_history_days: int = _bounded_int("STARTUP_SYNC_FULL_MARKET_HISTORY_DAYS", 365, 1, 3650)
+    startup_sync_full_market_history_batch_size: int = _bounded_int("STARTUP_SYNC_FULL_MARKET_HISTORY_BATCH_SIZE", 30, 1, 200)
     startup_sync_full_market_history_limit: int | None = _optional_int("STARTUP_SYNC_FULL_MARKET_HISTORY_LIMIT")
 
     request_min_interval_seconds: int = _int("REQUEST_MIN_INTERVAL_SECONDS", 3)

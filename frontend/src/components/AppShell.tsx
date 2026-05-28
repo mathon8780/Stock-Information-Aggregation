@@ -21,7 +21,7 @@ export default function AppShell() {
         <Header className="app-header">
           <div>
             <Typography.Text strong>智能证券市场监视、提醒与策略建议系统</Typography.Text>
-            <Typography.Text type="secondary">HTTP 轮询 · 本地规则引擎 · OpenClaw 编排</Typography.Text>
+            <Typography.Text type="secondary">HTTP 轮询 · 本地规则引擎 · 后端任务编排</Typography.Text>
           </div>
           <span className="header-status">Local MVP</span>
         </Header>

@@ -14,7 +14,7 @@
 - 新闻自动同步：后端启动后默认每 300 秒自动获取新闻；配置 LLM 后会自动处理待简化新闻。
 - 前端页面：Dashboard、Market、StockDetail、News、Advice、Settings、Notifications。
 - 实时刷新：前端通过后端事件流监听数据变化，新闻、策略、自选股、任务状态更新后会刷新对应模块。
-- OpenClaw/QQBot：OpenClaw 脚本已接入真实后端接口；QQBot 默认 dry-run，可通过 webhook 配置推送。
+- QQBot：系统会生成价格、策略和新闻通知记录，可在 Notifications 页面查看状态。
 
 ## 技术栈
 
@@ -22,7 +22,7 @@
 - 前端：React、Vite、TypeScript、Ant Design、ECharts
 - 数据源：AKShare、NewsNow
 - LLM：OpenAI 兼容 Chat Completions API，默认 DeepSeek `deepseek-v4-flash`
-- 调度：后端内置新闻自动同步，OpenClaw 本地 scheduler 负责行情、K 线、策略和推送任务
+- 调度：后端内置启动同步和新闻自动同步；行情、K 线和策略任务可通过 Settings 页面或后端 API 手动触发
 
 ## 本地运行
 
@@ -128,31 +128,7 @@ $env:PGPASSWORD='change_me'
 - `NEWS_AUTO_SYNC_LIMIT=30`
 - `NEWS_AUTO_SIMPLIFY_LIMIT=50`
 
-行情、分钟 K、全市场日 K、策略分析和通知推送由 OpenClaw 本地调度器负责：
-
-```powershell
-Set-Location "C:\Users\Matho\Desktop\Class\Engineering Practice\Project"
-.\.venv\Scripts\python openclaw\local-scheduler\run.py
-```
-
-默认频率：
-
-- 全市场快照：300 秒，仅交易时段执行
-- 新闻同步：300 秒
-- 策略分析：900 秒，仅交易时段执行
-- 全市场近一年日 K：86400 秒
-- 自选股 10 日 5 分钟 K：86400 秒
-
-也可以单独运行某个 OpenClaw 任务：
-
-```powershell
-.\.venv\Scripts\python openclaw\market-data-fetcher\run.py
-.\.venv\Scripts\python openclaw\market-intraday-fetcher\run.py
-.\.venv\Scripts\python openclaw\market-history-fetcher\run.py
-.\.venv\Scripts\python openclaw\market-info-fetcher\run.py
-.\.venv\Scripts\python openclaw\market-analysis-trigger\run.py
-.\.venv\Scripts\python openclaw\market-alert-publisher\run.py
-```
+行情、分钟 K、全市场日 K 和策略分析可在 Settings 页面手动触发，也可以直接调用对应后端接口。
 
 ## 前端操作说明
 

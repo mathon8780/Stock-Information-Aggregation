@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-from datetime import datetime
-from typing import Any
-
 from pydantic import BaseModel, Field
 
 
@@ -18,14 +15,6 @@ class UpdateWatchRequest(BaseModel):
     alert_threshold_pct: float | None = None
     strategy_push_enabled: bool | None = None
     display_order: int | None = None
-
-
-class NotificationResultRequest(BaseModel):
-    notification_id: int
-    status: str = Field(..., pattern="^(sent|failed|pending)$")
-    sent_at: datetime | None = None
-    error_message: str | None = None
-    payload: dict[str, Any] | None = None
 
 
 class NewsLlmConfigRequest(BaseModel):

@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS kline_daily (
   amplitude NUMERIC(10,4),
   change_pct NUMERIC(10,4),
   turnover_rate NUMERIC(10,4),
-  source VARCHAR(64) NOT NULL DEFAULT 'openclaw',
+  source VARCHAR(64) NOT NULL DEFAULT 'akshare',
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY (stock_id, trade_date)
 );
@@ -155,7 +155,7 @@ CREATE TABLE IF NOT EXISTS collection_jobs (
   id BIGSERIAL PRIMARY KEY,
   job_type VARCHAR(32) NOT NULL,
   status VARCHAR(16) NOT NULL,
-  source VARCHAR(64) NOT NULL DEFAULT 'openclaw',
+  source VARCHAR(64) NOT NULL DEFAULT 'system',
   requested_payload JSONB,
   result_summary JSONB,
   error_message TEXT,

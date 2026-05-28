@@ -4,6 +4,8 @@ from datetime import date
 
 os.environ["DATABASE_URL"] = "sqlite:///./data/test_market_agent.db"
 os.environ["AUTO_SEED_DEMO_DATA"] = "false"
+os.environ["STARTUP_SYNC_ENABLED"] = "false"
+os.environ["NEWS_AUTO_SYNC_ENABLED"] = "false"
 
 import pandas as pd
 from fastapi.testclient import TestClient
