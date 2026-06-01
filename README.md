@@ -28,7 +28,6 @@
 后端默认使用本机 PostgreSQL；SQLite 仅用于测试。
 
 ```powershell
-Set-Location "C:\Users\Matho\Desktop\Class\Engineering Practice\Project"
 Copy-Item .env.example .env
 
 python -m venv .venv
@@ -41,7 +40,7 @@ python -m venv .venv
 前端：
 
 ```powershell
-Set-Location "C:\Users\Matho\Desktop\Class\Engineering Practice\Project\frontend"
+Set-Location .\frontend
 npm install
 npm run dev -- --host 127.0.0.1 --port 5173
 ```
@@ -78,14 +77,10 @@ Markdown 推送输出配置：
 
 ```env
 PUSH_MESSAGE_ENABLED=true
-PUSH_MESSAGE_DIR=C:\File\PushMessage
+PUSH_MESSAGE_DIR=<your-output-dir>
 ```
 
-本机课程项目可将 `PUSH_MESSAGE_DIR` 改为：
-
-```env
-PUSH_MESSAGE_DIR=C:\Users\Matho\Desktop\Class\Engineering Practice\PushMessage
-```
+`PUSH_MESSAGE_DIR` 是本地推送文件输出目录，请按自己的机器路径配置。`.env.example` 中给出的 `C:\File\PushMessage` 只是 Windows 示例。
 
 启动同步配置：
 
@@ -198,7 +193,7 @@ NEWS_AUTO_SIMPLIFY_LIMIT=50
 前端构建：
 
 ```powershell
-Set-Location "C:\Users\Matho\Desktop\Class\Engineering Practice\Project\frontend"
+Set-Location .\frontend
 npm run build
 ```
 
