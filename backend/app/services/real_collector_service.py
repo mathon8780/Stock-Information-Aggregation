@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import importlib
 import math
+import re
 import time
 from datetime import date, datetime, time as wall_time, timedelta, timezone
 from typing import Any, Callable, Iterable
 
+import requests
 from sqlalchemy import exists, select
 from sqlalchemy.orm import Session
 
@@ -35,6 +37,18 @@ MAIN_INDICES = [
 ]
 
 INDEX_SPOT_GROUPS = ["沪深重要指数", "上证系列指数", "深证系列指数", "中证系列指数"]
+EASTMONEY_QUOTE_URL = "https://push2.eastmoney.com/api/qt/ulist.np/get"
+EASTMONEY_A_SPOT_URL = "https://push2.eastmoney.com/api/qt/clist/get"
+EASTMONEY_A_SPOT_FIELDS = "f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f12,f13,f14,f15,f16,f17,f18,f20,f21,f23,f24,f25,f22,f11,f62,f128,f136,f115,f152"
+EASTMONEY_A_SPOT_FS = "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23,m:0+t:81+s:2048"
+SINA_QUOTE_URL = "https://hq.sinajs.cn/list="
+EASTMONEY_INDEX_SECIDS = {
+    "000001": "1.000001",
+    "399001": "0.399001",
+    "399006": "0.399006",
+    "000300": "1.000300",
+    "000905": "1.000905",
+}
 BACKOFF_SECONDS = [60, 120, 300]
 
 
@@ -87,8 +101,20 @@ class AkshareCollector:
     def collect_market_snapshot(self, db: Session) -> dict[str, Any]:
         try:
             now = datetime.now(timezone.utc)
-            stock_items = self._build_stock_spot_items(now, _watchlist_stock_targets(db))
-            index_items, failed_items = self._build_index_spot_items(now)
+            stock_items: list[dict[str, Any]] = []
+            failed_items: list[dict[str, Any]] = []
+            try:
+                stock_items = self._build_stock_spot_items(now, _watchlist_stock_targets(db))
+            except Exception as exc:
+                failed_items.append({"code": "A_SHARE", "name": "全市场股票", "error": str(exc)})
+            try:
+                index_items, index_failed_items = self._build_index_spot_items(now)
+                failed_items.extend(index_failed_items)
+            except Exception as exc:
+                index_items = []
+                failed_items.append({"code": "INDEX", "name": "主要指数", "error": str(exc)})
+            if not stock_items and not index_items:
+                raise RuntimeError("; ".join(item["error"] for item in failed_items) or "no market snapshot rows returned")
             payload = {
                 "job_type": "market_snapshot",
                 "source": "akshare",
@@ -462,12 +488,20 @@ class AkshareCollector:
         return None
 
     def _build_stock_spot_items(self, now: datetime, watch_targets: list[dict[str, str]] | None = None) -> list[dict[str, Any]]:
-        df = self._stock_spot_frame()
+        source_rows: list[dict[str, Any]]
+        try:
+            source_rows = _records(self._stock_spot_frame())
+        except Exception:
+            if not watch_targets:
+                raise
+            source_rows = self._sina_quote_rows_for_targets(watch_targets)
+            if not source_rows:
+                raise
         items: list[dict[str, Any]] = []
         watch_targets = DEFAULT_WATCHLIST if watch_targets is None else watch_targets
         watch_codes = {item["code"] for item in watch_targets}
         watch_meta = {item["code"]: item for item in watch_targets}
-        for row in _records(df):
+        for row in source_rows:
             raw_code = str(_value(row, "代码", "code") or "").strip()
             if not raw_code:
                 continue
@@ -509,6 +543,10 @@ class AkshareCollector:
                 return self.ak.stock_zh_a_spot_em()
             except Exception as exc:
                 errors.append(f"stock_zh_a_spot_em: {exc}")
+        try:
+            return self._eastmoney_a_spot_rows()
+        except Exception as exc:
+            errors.append(f"eastmoney_a_spot: {exc}")
         if hasattr(self.ak, "stock_zh_a_spot"):
             try:
                 return self.ak.stock_zh_a_spot()
@@ -541,6 +579,22 @@ class AkshareCollector:
                         found[symbol] = row
             except Exception as exc:
                 errors.append(f"stock_zh_index_spot_sina: {exc}")
+        if len(found) < len(wanted):
+            try:
+                for row in self._eastmoney_index_spot_rows():
+                    symbol = _index_symbol(_value(row, "代码", "code"))
+                    if symbol in wanted:
+                        found[symbol] = row
+            except Exception as exc:
+                errors.append(f"eastmoney_index_spot: {exc}")
+        if len(found) < len(wanted):
+            try:
+                for row in self._sina_quote_rows_for_targets(MAIN_INDICES):
+                    symbol = _index_symbol(_value(row, "代码", "code"))
+                    if symbol in wanted:
+                        found[symbol] = row
+            except Exception as exc:
+                errors.append(f"sina_index_spot: {exc}")
 
         items: list[dict[str, Any]] = []
         failed_items: list[dict[str, Any]] = []
@@ -572,6 +626,149 @@ class AkshareCollector:
                 }
             )
         return items, failed_items
+
+    def _eastmoney_index_spot_rows(self) -> list[dict[str, Any]]:
+        symbols = [item["symbol"] for item in MAIN_INDICES]
+        data = self._eastmoney_get(
+            EASTMONEY_QUOTE_URL,
+            params={
+                "fltt": "2",
+                "invt": "2",
+                "fields": "f12,f14,f2,f3,f4,f5,f6,f7,f10,f15,f16,f17",
+                "secids": ",".join(EASTMONEY_INDEX_SECIDS[symbol] for symbol in symbols),
+            },
+        )
+        rows = []
+        for item in ((data.get("data") or {}).get("diff") or []):
+            code = str(item.get("f12") or "").strip()
+            if not code:
+                continue
+            rows.append(
+                {
+                    "代码": code,
+                    "名称": item.get("f14"),
+                    "最新价": item.get("f2"),
+                    "涨跌幅": item.get("f3"),
+                    "涨跌额": item.get("f4"),
+                    "成交量": item.get("f5"),
+                    "成交额": item.get("f6"),
+                    "振幅": item.get("f7"),
+                    "量比": item.get("f10"),
+                    "最高": item.get("f15"),
+                    "最低": item.get("f16"),
+                    "今开": item.get("f17"),
+                }
+            )
+        if not rows:
+            raise RuntimeError("empty Eastmoney index response")
+        return rows
+
+    def _eastmoney_a_spot_rows(self) -> list[dict[str, Any]]:
+        rows: list[dict[str, Any]] = []
+        page = 1
+        page_size = 500
+        total: int | None = None
+        while total is None or len(rows) < total:
+            data = self._eastmoney_get(
+                EASTMONEY_A_SPOT_URL,
+                params={
+                    "pn": str(page),
+                    "pz": str(page_size),
+                    "po": "1",
+                    "np": "1",
+                    "ut": "bd1d9ddb04089700cf9c27f6f7426281",
+                    "fltt": "2",
+                    "invt": "2",
+                    "fid": "f12",
+                    "fs": EASTMONEY_A_SPOT_FS,
+                    "fields": EASTMONEY_A_SPOT_FIELDS,
+                },
+            )
+            payload = data.get("data") or {}
+            total = int(payload.get("total") or 0)
+            diff = payload.get("diff") or []
+            if not diff:
+                break
+            for item in diff:
+                code = str(item.get("f12") or "").strip()
+                if not code:
+                    continue
+                rows.append(
+                    {
+                        "代码": code,
+                        "名称": item.get("f14"),
+                        "最新价": item.get("f2"),
+                        "涨跌幅": item.get("f3"),
+                        "涨跌额": item.get("f4"),
+                        "成交量": item.get("f5"),
+                        "成交额": item.get("f6"),
+                        "振幅": item.get("f7"),
+                        "换手率": item.get("f8"),
+                        "市盈率-动态": item.get("f9"),
+                        "量比": item.get("f10"),
+                        "最高": item.get("f15"),
+                        "最低": item.get("f16"),
+                        "今开": item.get("f17"),
+                        "总市值": item.get("f20"),
+                        "流通市值": item.get("f21"),
+                        "市净率": item.get("f23"),
+                    }
+                )
+            page += 1
+        if not rows:
+            raise RuntimeError("empty Eastmoney A-share spot response")
+        return rows
+
+    def _eastmoney_get(self, url: str, params: dict[str, str]) -> dict[str, Any]:
+        session = requests.Session()
+        session.trust_env = False
+        response = session.get(
+            url,
+            params=params,
+            headers={"User-Agent": "Mozilla/5.0"},
+            timeout=15,
+        )
+        response.raise_for_status()
+        return response.json()
+
+    def _sina_quote_rows_for_targets(self, targets: list[dict[str, str]]) -> list[dict[str, Any]]:
+        symbols = [_sina_symbol(target["code"]) for target in targets]
+        symbols = [symbol for symbol in symbols if symbol]
+        if not symbols:
+            return []
+        session = requests.Session()
+        session.trust_env = False
+        response = session.get(
+            f"{SINA_QUOTE_URL}{','.join(symbols)}",
+            headers={"User-Agent": "Mozilla/5.0", "Referer": "https://finance.sina.com.cn"},
+            timeout=15,
+        )
+        response.raise_for_status()
+        text = response.content.decode("gb18030", errors="replace")
+        rows: list[dict[str, Any]] = []
+        for match in re.finditer(r'var hq_str_(?P<symbol>[a-z]{2}\d{6})="(?P<body>[^"]*)";', text):
+            values = match.group("body").split(",")
+            if len(values) < 32 or not values[0]:
+                continue
+            price = _to_float(values[3])
+            prev_close = _to_float(values[2])
+            change_amount = price - prev_close if price is not None and prev_close not in (None, 0) else None
+            change_pct = (change_amount / prev_close * 100) if change_amount is not None and prev_close else None
+            rows.append(
+                {
+                    "代码": _code_from_sina_symbol(match.group("symbol")),
+                    "名称": values[0],
+                    "最新价": price,
+                    "涨跌幅": change_pct,
+                    "涨跌额": change_amount,
+                    "成交量": _to_float(values[8]),
+                    "成交额": _to_float(values[9]),
+                    "今开": _to_float(values[1]),
+                    "最高": _to_float(values[4]),
+                    "最低": _to_float(values[5]),
+                }
+            )
+        return rows
 
     def _full_market_stock_targets(self) -> list[dict[str, str]]:
         exchange_targets = self._exchange_stock_info_targets()
@@ -932,6 +1129,29 @@ def _market_symbol(code: str, symbol: str) -> str:
     return symbol
 
 
+def _sina_symbol(code: str) -> str | None:
+    symbol = code.split(".")[0]
+    if code.endswith(".SH"):
+        return f"sh{symbol}"
+    if code.endswith(".SZ"):
+        return f"sz{symbol}"
+    if code.endswith(".BJ"):
+        return f"bj{symbol}"
+    return None
+
+
+def _code_from_sina_symbol(symbol: str) -> str:
+    prefix = symbol[:2].lower()
+    code = symbol[2:].upper()
+    if prefix == "sh":
+        return f"{code}.SH"
+    if prefix == "sz":
+        return f"{code}.SZ"
+    if prefix == "bj":
+        return f"{code}.BJ"
+    return code
+
+
 def _records(df: Any) -> list[dict[str, Any]]:
     if df is None:
         return []
@@ -989,6 +1209,10 @@ def _as_datetime(value: Any) -> datetime | None:
 
 def _float(row: dict[str, Any], *names: str) -> float | None:
     value = _value(row, *names)
+    return _to_float(value)
+
+
+def _to_float(value: Any) -> float | None:
     if value in (None, "", "-"):
         return None
     try:

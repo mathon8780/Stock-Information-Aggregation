@@ -1,6 +1,6 @@
 import asyncio
 import os
-from datetime import date
+from datetime import date, datetime, timezone
 
 os.environ["DATABASE_URL"] = "sqlite:///./data/test_market_agent.db"
 os.environ["AUTO_SEED_DEMO_DATA"] = "false"
@@ -16,7 +16,7 @@ from app.api import router as api_router
 from app.main import app
 from app.database import Base, SessionLocal, engine
 from app.models import CollectionJob, KlineDaily, KlineIntraday, News, Notification, Stock, TradingAdvice, Watchlist
-from app.services import news_auto_sync_service, watch_stock_sync_service
+from app.services import news_auto_sync_service, real_collector_service, watch_stock_sync_service
 from app.services.event_bus import publish_event, subscribe, unsubscribe
 from app.services.news_collector_service import NewsCollector, OpenAICompatibleNewsFormatter
 from app.services.push_message_service import render_notification_markdown
@@ -107,6 +107,19 @@ class FakeResolveAkshare(FakeAkshare):
         return pd.concat([base, extra], ignore_index=True)
 
 
+class FakeIndexUnavailableAkshare:
+    def stock_zh_index_spot_em(self, symbol: str):
+        raise RuntimeError("index spot unavailable")
+
+
+class FakeStockSpotUnavailableAkshare(FakeAkshare):
+    def stock_zh_a_spot_em(self):
+        raise RuntimeError("stock spot unavailable")
+
+    def stock_zh_a_spot(self):
+        raise RuntimeError("sina spot unavailable")
+
+
 def history_frame():
     rows = []
     for day in range(1, 31):
@@ -147,9 +160,96 @@ def test_health_and_real_bootstrap(monkeypatch):
         market = client.get("/api/v1/market/snapshot?page_size=10")
         assert market.status_code == 200
         assert market.json()["total"] > 0
+        index = client.get("/api/v1/stocks/000001.SH")
+        assert index.status_code == 200
+        assert index.json()["latest_snapshot"]["price"] == 3100
+        assert index.json()["latest_snapshot"]["change_pct"] == 0.2
     with SessionLocal() as db:
         assert db.query(KlineDaily).filter(KlineDaily.source == "demo").count() == 0
         assert db.query(News).filter(News.source == "demo-finance").count() == 0
+
+
+def test_index_spot_falls_back_to_eastmoney(monkeypatch):
+    def fake_eastmoney_get(self, url: str, params: dict[str, str]):
+        assert url == real_collector_service.EASTMONEY_QUOTE_URL
+        assert "secids" in params
+        return {
+            "data": {
+                "diff": [
+                    {"f12": "000001", "f14": "上证指数", "f2": 4057.74, "f3": -1.07, "f4": -43.95, "f5": 100, "f6": 200, "f7": 1.16, "f10": 0.88, "f15": 4093.04, "f16": 4045.69, "f17": 4067.16},
+                    {"f12": "399001", "f14": "深证成指", "f2": 15000.0, "f3": -2.0, "f4": -300.0, "f5": 101, "f6": 201, "f7": 2.0, "f10": 0.9, "f15": 15300.0, "f16": 14900.0, "f17": 15200.0},
+                    {"f12": "399006", "f14": "创业板指", "f2": 3800.0, "f3": -3.0, "f4": -120.0, "f5": 102, "f6": 202, "f7": 3.0, "f10": 0.91, "f15": 3920.0, "f16": 3790.0, "f17": 3900.0},
+                    {"f12": "000300", "f14": "沪深300", "f2": 4800.0, "f3": -1.0, "f4": -48.0, "f5": 103, "f6": 203, "f7": 1.4, "f10": 0.92, "f15": 4860.0, "f16": 4790.0, "f17": 4850.0},
+                    {"f12": "000905", "f14": "中证500", "f2": 8400.0, "f3": -1.5, "f4": -127.0, "f5": 104, "f6": 204, "f7": 1.8, "f10": 0.93, "f15": 8520.0, "f16": 8390.0, "f17": 8500.0},
+                ]
+            }
+        }
+
+    monkeypatch.setattr(AkshareCollector, "_eastmoney_get", fake_eastmoney_get)
+    items, failed = AkshareCollector(FakeIndexUnavailableAkshare(), sleep_fn=lambda _: None)._build_index_spot_items(
+        datetime(2026, 6, 1, tzinfo=timezone.utc)
+    )
+    by_code = {item["code"]: item for item in items}
+    assert failed == []
+    assert by_code["000001.SH"]["price"] == 4057.74
+    assert by_code["000001.SH"]["change_pct"] == -1.07
+
+
+def test_stock_spot_falls_back_to_eastmoney(monkeypatch):
+    def fake_eastmoney_get(self, url: str, params: dict[str, str]):
+        assert url == real_collector_service.EASTMONEY_A_SPOT_URL
+        assert params["pn"] == "1"
+        return {
+            "data": {
+                "total": 1,
+                "diff": [
+                    {"f12": "300308", "f14": "中际旭创", "f2": 1130.0, "f3": -2.68, "f4": -31.16, "f5": 269782, "f6": 30968403448.51, "f7": 6.0, "f8": 2.4, "f9": 45.0, "f10": 1.1, "f15": 1183.61, "f16": 1113.9, "f17": 1161.0, "f20": 1000000000, "f21": 900000000, "f23": 8.2},
+                ],
+            }
+        }
+
+    monkeypatch.setattr(AkshareCollector, "_eastmoney_get", fake_eastmoney_get)
+    items = AkshareCollector(FakeStockSpotUnavailableAkshare(), sleep_fn=lambda _: None)._build_stock_spot_items(
+        datetime(2026, 6, 1, tzinfo=timezone.utc),
+        [{"code": "300308.SZ", "name": "中际旭创", "market": "SZ", "security_type": "stock", "industry": "CPO/光模块"}],
+    )
+    item = next(row for row in items if row["code"] == "300308.SZ")
+    assert item["name"] == "中际旭创"
+    assert item["price"] == 1130.0
+    assert item["is_watch"] is True
+
+
+def test_stock_spot_falls_back_to_sina_quotes(monkeypatch):
+    def fake_eastmoney_get(self, url: str, params: dict[str, str]):
+        raise RuntimeError("eastmoney unavailable")
+
+    def fake_sina_quotes(self, targets: list[dict[str, str]]):
+        return [{"代码": "300308.SZ", "名称": "中际旭创", "最新价": 1130.0, "涨跌幅": -2.68, "涨跌额": -31.16, "成交量": 26978189, "成交额": 30968403448.51, "今开": 1161.0, "最高": 1183.61, "最低": 1113.9}]
+
+    monkeypatch.setattr(AkshareCollector, "_eastmoney_get", fake_eastmoney_get)
+    monkeypatch.setattr(AkshareCollector, "_sina_quote_rows_for_targets", fake_sina_quotes)
+    items = AkshareCollector(FakeStockSpotUnavailableAkshare(), sleep_fn=lambda _: None)._build_stock_spot_items(
+        datetime(2026, 6, 1, tzinfo=timezone.utc),
+        [{"code": "300308.SZ", "name": "中际旭创", "market": "SZ", "security_type": "stock", "industry": "CPO/光模块"}],
+    )
+    assert items[0]["code"] == "300308.SZ"
+    assert items[0]["price"] == 1130.0
+
+
+def test_index_spot_falls_back_to_sina_quotes(monkeypatch):
+    def fake_eastmoney_get(self, url: str, params: dict[str, str]):
+        raise RuntimeError("eastmoney unavailable")
+
+    def fake_sina_quotes(self, targets: list[dict[str, str]]):
+        return [{"代码": item["code"], "名称": item["name"], "最新价": 4057.74, "涨跌幅": -0.27, "涨跌额": -10.83, "成交量": 1, "成交额": 2, "今开": 4067.16, "最高": 4093.04, "最低": 4045.69} for item in real_collector_service.MAIN_INDICES]
+
+    monkeypatch.setattr(AkshareCollector, "_eastmoney_get", fake_eastmoney_get)
+    monkeypatch.setattr(AkshareCollector, "_sina_quote_rows_for_targets", fake_sina_quotes)
+    items, failed = AkshareCollector(FakeIndexUnavailableAkshare(), sleep_fn=lambda _: None)._build_index_spot_items(
+        datetime(2026, 6, 1, tzinfo=timezone.utc)
+    )
+    assert failed == []
+    assert {item["code"] for item in items} == {item["code"] for item in real_collector_service.MAIN_INDICES}
 
 
 def test_event_bus_delivers_events():

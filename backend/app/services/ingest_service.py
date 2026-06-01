@@ -142,8 +142,19 @@ def ingest_market_payload(db: Session, payload: dict[str, Any], watch_only: bool
                 inserted_watch += 1
             else:
                 skipped += 1
-    summary = {"inserted_market": inserted_market, "inserted_watch": inserted_watch, "skipped": skipped, "failed": len(payload.get("failed_items") or [])}
-    _record_job(db, payload.get("job_type", "market_snapshot"), source, "success", summary, {"count": len(items)})
+    failed_items = payload.get("failed_items") or []
+    summary = {"inserted_market": inserted_market, "inserted_watch": inserted_watch, "skipped": skipped, "failed": len(failed_items)}
+    requested_payload: dict[str, Any] = {"count": len(items)}
+    if failed_items:
+        requested_payload["failed_items"] = failed_items[:20]
+    _record_job(
+        db,
+        payload.get("job_type", "market_snapshot"),
+        source,
+        "success" if not failed_items else "partial_failed",
+        summary,
+        requested_payload,
+    )
     db.commit()
     publish_event("market.updated", summary)
     if inserted_watch:
