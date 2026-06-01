@@ -8,7 +8,7 @@ export default function PageHeader({ title, description, extra }: { title: strin
         <Typography.Title level={2}>{title}</Typography.Title>
         {description ? <Typography.Text type="secondary">{description}</Typography.Text> : null}
       </div>
-      {extra ? <Space>{extra}</Space> : null}
+      {extra ? <Space wrap>{extra}</Space> : null}
     </div>
   );
 }

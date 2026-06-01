@@ -1,4 +1,4 @@
-import { PlayCircleOutlined, ReloadOutlined, StarFilled, StarOutlined } from '@ant-design/icons';
+import { CloudDownloadOutlined, PlayCircleOutlined, ReloadOutlined, StarFilled, StarOutlined } from '@ant-design/icons';
 import { Button, Card, Col, Row, Segmented, Space, Spin, Typography, message } from 'antd';
 import ReactECharts from 'echarts-for-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -31,6 +31,7 @@ export default function StockDetail() {
   const [history, setHistory] = useState<Advice[]>([]);
   const [klineMode, setKlineMode] = useState<KlineMode>('latest_intraday');
   const [intradayRefreshing, setIntradayRefreshing] = useState(false);
+  const [dailyKlineRefreshing, setDailyKlineRefreshing] = useState(false);
   const [lastIntradayRefresh, setLastIntradayRefresh] = useState<string | null>(null);
   const intradayRefreshInFlight = useRef(false);
 
@@ -75,6 +76,28 @@ export default function StockDetail() {
     } finally {
       intradayRefreshInFlight.current = false;
       setIntradayRefreshing(false);
+    }
+  }, [code, load]);
+
+  const completeDailyKline = useCallback(async () => {
+    if (!code) return;
+    setDailyKlineRefreshing(true);
+    try {
+      const result = await api.collectStockDailyKline(code, 365);
+      const inserted = Number(result.inserted ?? 0);
+      const updated = Number(result.updated ?? 0);
+      const failed = Number(result.failed ?? 0);
+      setKlineMode('daily');
+      await load(false);
+      if (failed > 0) {
+        message.warning(`日 K 补全完成，失败 ${failed} 条`);
+      } else {
+        message.success(`日 K 补全完成，新增 ${inserted} 条，更新 ${updated} 条`);
+      }
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '日 K 补全失败');
+    } finally {
+      setDailyKlineRefreshing(false);
     }
   }, [code, load]);
 
@@ -139,6 +162,7 @@ export default function StockDetail() {
           <>
             <Button icon={stock.is_watched ? <StarFilled /> : <StarOutlined />} onClick={toggleWatch}>{stock.is_watched ? '取消关注' : '加入关注'}</Button>
             <Button icon={<PlayCircleOutlined />} type="primary" onClick={analyze}>触发分析</Button>
+            <Button icon={<CloudDownloadOutlined />} loading={dailyKlineRefreshing} onClick={completeDailyKline}>补全近一年日 K</Button>
             <Button icon={<ReloadOutlined />} loading={intradayRefreshing} disabled={!stock.is_watched} onClick={() => refreshIntraday(true)}>更新分钟 K</Button>
             <Button icon={<ReloadOutlined />} onClick={() => load(true)}>刷新页面</Button>
           </>

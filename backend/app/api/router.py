@@ -116,6 +116,7 @@ def get_settings(db: Session = Depends(get_db)) -> dict[str, Any]:
             "batch_size": settings.qqbot_batch_size,
             "max_retry": settings.qqbot_max_retry,
         },
+        "push_message": {"enabled": settings.push_message_enabled, "dir": settings.push_message_dir},
         "analysis_engine": settings.analysis_engine,
         "disclaimer": DISCLAIMER,
     }
@@ -385,6 +386,15 @@ def collect_real_market(db: Session = Depends(get_db)) -> dict[str, Any]:
 @router.post("/collector/real/history")
 def collect_real_history(db: Session = Depends(get_db)) -> dict[str, Any]:
     return AkshareCollector().collect_history(db)
+
+
+@router.post("/collector/real/daily-kline/{code}")
+def collect_real_stock_daily_kline(code: str, days: int = Query(365, ge=1, le=3650), db: Session = Depends(get_db)) -> dict[str, Any]:
+    _get_stock_or_404(db, code)
+    try:
+        return AkshareCollector().collect_stock_history(db, code, days=days)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/collector/real/full-market-history")

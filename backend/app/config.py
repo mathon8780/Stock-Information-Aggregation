@@ -60,6 +60,8 @@ class Settings:
     qqbot_webhook_url: str = os.getenv("QQBOT_WEBHOOK_URL", "")
     qqbot_batch_size: int = _int("QQBOT_BATCH_SIZE", 10)
     qqbot_max_retry: int = _int("QQBOT_MAX_RETRY", 3)
+    push_message_enabled: bool = _bool("PUSH_MESSAGE_ENABLED", True)
+    push_message_dir: str = os.getenv("PUSH_MESSAGE_DIR", r"C:\File\PushMessage")
 
     market_snapshot_interval_seconds: int = _int("MARKET_SNAPSHOT_INTERVAL_SECONDS", 300)
     watch_snapshot_interval_seconds: int = _int("WATCH_SNAPSHOT_INTERVAL_SECONDS", 60)

@@ -9,6 +9,8 @@ venv/
 *.egg-info/
 
 # Local databases and runtime output
+logs/
+PushMessage/
 backend/data/*.db
 backend/data/*.sqlite*
 backend/data/*.log

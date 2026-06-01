@@ -9,12 +9,14 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.models import News, Notification, Stock, Watchlist
+from app.services.push_message_service import write_push_message
 
 
 def create_notification(db: Session, notification_type: str, title: str, content: str, payload: dict[str, Any] | None = None, status: str = "pending") -> Notification:
     row = Notification(notification_type=notification_type, target_channel=settings.qqbot_target, title=title, content=content, payload=payload or {}, status=status)
     db.add(row)
     db.flush()
+    _write_markdown_message(row)
     return row
 
 
@@ -67,6 +69,38 @@ def create_news_notification_if_needed(db: Session, news: News) -> Notification 
     )
 
 
+def create_major_event_notification_if_needed(db: Session, news: News) -> Notification | None:
+    if news.importance < 4:
+        return None
+    recent = db.execute(select(Notification).where(Notification.notification_type == "major_event").order_by(desc(Notification.created_at)).limit(500)).scalars().all()
+    if any((row.payload or {}).get("news_id") == news.id for row in recent):
+        return None
+    source_name = news.source.replace("newsnow:", "") if news.source else "新闻"
+    digest = (news.summary or news.content or news.original_title or news.title or "").strip()
+    if len(digest) > 260:
+        digest = f"{digest[:257]}..."
+    content = f"{digest}\n\n来源：{source_name}"
+    if news.published_at is not None:
+        content += f"\n时间：{news.published_at.isoformat()}"
+    if news.url:
+        content += f"\n原文：{news.url}"
+    return create_notification(
+        db,
+        "major_event",
+        f"重大事件：{news.title}",
+        content,
+        {
+            "news_id": news.id,
+            "source": news.source,
+            "url": news.url,
+            "published_at": news.published_at.isoformat() if news.published_at else None,
+            "importance": news.importance,
+            "sentiment": news.sentiment,
+            "stock_id": news.stock_id,
+        },
+    )
+
+
 def update_notification_result(db: Session, notification_id: int, status: str, sent_at: datetime | None = None, error_message: str | None = None) -> Notification:
     row = db.get(Notification, notification_id)
     if row is None:
@@ -84,3 +118,14 @@ def update_notification_result(db: Session, notification_id: int, status: str, s
         row.error_message = error_message
     db.flush()
     return row
+
+
+def _write_markdown_message(row: Notification) -> None:
+    if not settings.push_message_enabled:
+        return
+    payload = dict(row.payload or {})
+    try:
+        payload["push_message_path"] = write_push_message(row, settings.push_message_dir)
+    except OSError as exc:
+        payload["push_message_error"] = str(exc)[:300]
+    row.payload = payload

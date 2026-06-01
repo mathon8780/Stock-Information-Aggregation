@@ -6,6 +6,7 @@ os.environ["DATABASE_URL"] = "sqlite:///./data/test_market_agent.db"
 os.environ["AUTO_SEED_DEMO_DATA"] = "false"
 os.environ["STARTUP_SYNC_ENABLED"] = "false"
 os.environ["NEWS_AUTO_SYNC_ENABLED"] = "false"
+os.environ["PUSH_MESSAGE_ENABLED"] = "false"
 
 import pandas as pd
 from fastapi.testclient import TestClient
@@ -18,6 +19,7 @@ from app.models import CollectionJob, KlineDaily, KlineIntraday, News, Notificat
 from app.services import news_auto_sync_service, watch_stock_sync_service
 from app.services.event_bus import publish_event, subscribe, unsubscribe
 from app.services.news_collector_service import NewsCollector, OpenAICompatibleNewsFormatter
+from app.services.push_message_service import render_notification_markdown
 from app.services.real_collector_service import AkshareCollector
 
 
@@ -286,6 +288,27 @@ def test_collect_single_stock_intraday_for_detail_page(monkeypatch):
 
         other = client.get("/api/v1/stocks/300502.SZ/intraday?period=1&days=1").json()
         assert other["total"] == 0
+
+
+def test_collect_single_stock_daily_kline_for_detail_page(monkeypatch):
+    monkeypatch.setattr(api_router, "AkshareCollector", lambda: AkshareCollector(FakeAkshare(), sleep_fn=lambda _: None))
+    with TestClient(app) as client:
+        client.post("/api/v1/collector/real/bootstrap")
+        with SessionLocal() as db:
+            stock = db.query(Stock).filter(Stock.code == "300308.SZ").one()
+            db.query(KlineDaily).filter(KlineDaily.stock_id == stock.id).delete()
+            db.commit()
+
+        response = client.post("/api/v1/collector/real/daily-kline/300308.SZ?days=365")
+        assert response.status_code == 200
+        body = response.json()
+        assert body["code"] == "300308.SZ"
+        assert body["days"] == 365
+        assert body["inserted"] == 30
+        assert body["failed"] == 0
+
+        daily = client.get("/api/v1/stocks/300308.SZ/kline?limit=365").json()
+        assert daily["total"] == 30
 
 
 def test_intraday_query_limit_scales_for_minute_periods():
@@ -594,11 +617,31 @@ def test_collect_real_news_with_deepseek_summary(monkeypatch):
         assert digest["target_channel"] == "configured_qqbot_default"
         assert "财联社" in digest["title"]
         assert "https://example.com/news/1" in digest["content"]
+        major = next(row for row in notifications if row["notification_type"] == "major_event" and row["payload"].get("news_id") == item["id"])
+        assert major["payload"]["importance"] == 4
+        assert "重大事件" in major["title"]
 
     with SessionLocal() as db:
         row = db.query(CollectionJob).filter(CollectionJob.job_type == "news").order_by(CollectionJob.id.desc()).first()
         assert row.source == "newsnow"
         assert row.status == "success"
+
+
+def test_notification_markdown_is_structured_and_bounded():
+    row = Notification(
+        id=99,
+        notification_type="major_event",
+        target_channel="configured_qqbot_default",
+        title="重大事件：测试公告",
+        content="公司发布重大公告，涉及业绩增长和回购计划。" * 40,
+        payload={"source": "newsnow:财联社", "url": "https://example.com/news/99", "importance": 5, "sentiment": "positive"},
+    )
+    markdown = render_notification_markdown(row)
+
+    assert markdown.startswith("# 重大事件提醒")
+    assert "- 类型：重大事件" in markdown
+    assert "https://example.com/news/99" in markdown
+    assert len(markdown) <= 600
 
 
 def test_news_llm_config_is_saved_without_returning_key():

@@ -59,6 +59,7 @@ export const api = {
   collectBootstrap: () => request('/collector/real/bootstrap', { method: 'POST' }),
   collectMarket: () => request('/collector/real/market', { method: 'POST' }),
   collectHistory: () => request('/collector/real/history', { method: 'POST' }),
+  collectStockDailyKline: (code: string, days = 365) => request<Record<string, any>>(`/collector/real/daily-kline/${encodeURIComponent(code)}?days=${days}`, { method: 'POST' }),
   collectFullMarketHistory: () => request<CollectorStartResult>('/collector/real/full-market-history/start?days=365', { method: 'POST' }),
   collectMissingDailyKline: () => request<CollectorStartResult>('/collector/real/missing-daily-kline/start?days=365', { method: 'POST' }),
   collectIntraday: () => request('/collector/real/intraday', { method: 'POST' }),

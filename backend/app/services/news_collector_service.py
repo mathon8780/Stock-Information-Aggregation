@@ -19,7 +19,7 @@ from app.models import News
 from app.services.event_bus import publish_event
 from app.services.ingest_service import content_hash, get_or_create_stock, ingest_news_payload, record_collection_job, truncate_news_original_title
 from app.services.news_llm_config_service import EffectiveNewsLlmConfig, get_effective_news_llm_config
-from app.services.notification_service import create_news_notification_if_needed
+from app.services.notification_service import create_major_event_notification_if_needed, create_news_notification_if_needed
 from app.services.real_collector_service import DEFAULT_WATCHLIST
 
 
@@ -407,6 +407,7 @@ class NewsCollector:
         payload = dict(row.raw_payload or {})
         payload.update({"llm_provider": row.llm_provider, "llm_model": row.llm_model, "prompt_name": row.prompt_name})
         row.raw_payload = payload
+        create_major_event_notification_if_needed(db, row)
         create_news_notification_if_needed(db, row)
 
     def _mark_failed(self, row: News, error_message: str) -> None:

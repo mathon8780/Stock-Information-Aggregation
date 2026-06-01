@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.models import CollectionJob, KlineDaily, KlineIntraday, MarketSnapshot, News, Stock, WatchSnapshot
 from app.services.event_bus import publish_event
-from app.services.notification_service import create_price_alert_if_needed
+from app.services.notification_service import create_major_event_notification_if_needed, create_price_alert_if_needed
 from app.services.sentiment_service import classify_sentiment, estimate_importance
 
 
@@ -246,30 +246,31 @@ def ingest_news_payload(db: Session, payload: dict[str, Any]) -> dict[str, Any]:
             skipped += 1
             continue
         text_for_sentiment = f"{title} {summary_text}"
-        db.add(
-            News(
-                stock_id=stock.id if stock is not None else None,
-                scope=str(item.get("scope") or ("stock" if stock is not None else "market")),
-                title=title,
-                original_title=original_title,
-                summary=summary_text,
-                content=item.get("content"),
-                source=str(item.get("source") or source),
-                url=item.get("url"),
-                content_hash=digest,
-                sentiment=item.get("sentiment") or classify_sentiment(text_for_sentiment),
-                importance=max(1, min(5, int(item.get("importance") or estimate_importance(text_for_sentiment)))),
-                published_at=parse_datetime(item.get("published_at")) if item.get("published_at") else fetched_at,
-                fetched_at=fetched_at,
-                raw_payload=item,
-                simplification_status=str(item.get("simplification_status") or ("simplified" if item.get("content") else "pending")),
-                simplified_at=parse_datetime(item.get("simplified_at")) if item.get("simplified_at") else None,
-                llm_provider=item.get("llm_provider"),
-                llm_model=item.get("llm_model"),
-                prompt_name=item.get("prompt_name"),
-                error_message=item.get("error_message"),
-            )
+        news = News(
+            stock_id=stock.id if stock is not None else None,
+            scope=str(item.get("scope") or ("stock" if stock is not None else "market")),
+            title=title,
+            original_title=original_title,
+            summary=summary_text,
+            content=item.get("content"),
+            source=str(item.get("source") or source),
+            url=item.get("url"),
+            content_hash=digest,
+            sentiment=item.get("sentiment") or classify_sentiment(text_for_sentiment),
+            importance=max(1, min(5, int(item.get("importance") or estimate_importance(text_for_sentiment)))),
+            published_at=parse_datetime(item.get("published_at")) if item.get("published_at") else fetched_at,
+            fetched_at=fetched_at,
+            raw_payload=item,
+            simplification_status=str(item.get("simplification_status") or ("simplified" if item.get("content") else "pending")),
+            simplified_at=parse_datetime(item.get("simplified_at")) if item.get("simplified_at") else None,
+            llm_provider=item.get("llm_provider"),
+            llm_model=item.get("llm_model"),
+            prompt_name=item.get("prompt_name"),
+            error_message=item.get("error_message"),
         )
+        db.add(news)
+        db.flush()
+        create_major_event_notification_if_needed(db, news)
         inserted += 1
     summary = {"inserted": inserted, "skipped": skipped, "failed": len(payload.get("failed_items") or [])}
     _record_job(db, payload.get("job_type", "news"), source, "success", summary, {"count": len(items)})

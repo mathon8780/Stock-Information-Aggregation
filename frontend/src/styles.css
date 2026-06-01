@@ -293,6 +293,24 @@ a,
   padding: 0;
 }
 
+.ranking-card .ant-card-head-wrapper {
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.ranking-card .ant-card-extra {
+  padding: 10px 0;
+}
+
+.ranking-card .ant-segmented {
+  background: #eef3f5;
+}
+
+.ranking-card .ant-segmented-item {
+  min-width: 52px;
+  font-weight: 700;
+}
+
 .watchlist-card .ant-card-head {
   background: linear-gradient(90deg, rgba(15, 118, 110, 0.08), rgba(37, 99, 235, 0.06));
 }

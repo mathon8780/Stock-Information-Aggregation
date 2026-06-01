@@ -9,9 +9,14 @@ import LatestNewsCard from '../features/dashboard/components/LatestNewsCard';
 import RankingTables from '../features/dashboard/components/RankingTables';
 import WatchlistOverview from '../features/dashboard/components/WatchlistOverview';
 import { useDashboardData } from '../features/dashboard/useDashboardData';
+import type { Snapshot } from '../types';
+
+function stockRank(items: Snapshot[]) {
+  return items.filter((item) => item.security_type === 'stock').slice(0, 8);
+}
 
 export default function Dashboard() {
-  const { loading, market, watchlist, watchlistMaxSize, news, jobs, load } = useDashboardData();
+  const { loading, market, rankings, watchlist, watchlistMaxSize, news, jobs, load } = useDashboardData();
   const [missingDailyLoading, setMissingDailyLoading] = useState(false);
 
   const triggerMissingDailyKline = async () => {
@@ -35,9 +40,16 @@ export default function Dashboard() {
     .filter((item) => item.security_type === 'index')
     .sort((a, b) => indexOrder.indexOf(a.code) - indexOrder.indexOf(b.code))
     .slice(0, 5);
-  const stocks = market.filter((item) => item.security_type === 'stock');
-  const topGainers = stocks.slice(0, 8);
-  const topLosers = [...stocks].sort((a, b) => (a.change_pct ?? 0) - (b.change_pct ?? 0)).slice(0, 8);
+  const rankingGroups = {
+    up: {
+      strong: stockRank(rankings.up.strong),
+      weak: stockRank(rankings.up.weak),
+    },
+    down: {
+      strong: stockRank(rankings.down.strong),
+      weak: stockRank(rankings.down.weak),
+    },
+  };
   const latestJob = jobs[0];
 
   return (
@@ -65,7 +77,7 @@ export default function Dashboard() {
           </section>
 
           <div className="section-gap">
-            <RankingTables topGainers={topGainers} topLosers={topLosers} />
+            <RankingTables upRanks={rankingGroups.up} downRanks={rankingGroups.down} />
           </div>
 
           <div className="section-gap">
