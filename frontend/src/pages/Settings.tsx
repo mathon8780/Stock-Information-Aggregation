@@ -8,13 +8,15 @@ import SettingsCards from '../features/settings/SettingsCards';
 import TaskActions from '../features/settings/TaskActions';
 import { jobColumns } from '../features/settings/jobColumns';
 import { useBackendEvents } from '../hooks/useBackendEvents';
-import type { CollectionJob, NewsLlmConfig, NewsLlmConfigPayload } from '../types';
+import type { CollectionJob, NewsLlmConfig, NewsLlmConfigPayload, NewsLlmKeyStatus } from '../types';
 
 export default function Settings() {
   const [settings, setSettings] = useState<Record<string, any> | null>(null);
   const [newsLlmConfig, setNewsLlmConfig] = useState<NewsLlmConfig | null>(null);
+  const [newsLlmKeyStatus, setNewsLlmKeyStatus] = useState<NewsLlmKeyStatus | null>(null);
   const [jobs, setJobs] = useState<CollectionJob[]>([]);
   const [loading, setLoading] = useState(false);
+  const [validatingKey, setValidatingKey] = useState(false);
 
   const load = useCallback(async (showSpinner = true) => {
     if (showSpinner) setLoading(true);
@@ -23,6 +25,19 @@ export default function Settings() {
       setSettings(s);
       setJobs(j.items);
       setNewsLlmConfig(c);
+      if (!c.api_key_configured) {
+        setNewsLlmKeyStatus({
+          provider: c.provider,
+          model: c.model,
+          api_base_url: c.api_base_url,
+          api_key_configured: false,
+          ok: false,
+          status: 'missing',
+          message: 'API Key 未配置',
+        });
+      } else {
+        setNewsLlmKeyStatus((current) => (current?.api_key_configured ? current : null));
+      }
     } catch (error) {
       if (showSpinner) message.error(error instanceof Error ? error.message : '加载失败');
     } finally {
@@ -64,6 +79,24 @@ export default function Settings() {
       const next = await api.updateNewsLlmConfig(payload);
       setNewsLlmConfig(next);
       message.success('LLM 配置已保存');
+      if (next.api_key_configured) {
+        try {
+          const status = await api.validateNewsLlmConfig();
+          setNewsLlmKeyStatus(status);
+        } catch (error) {
+          message.warning(error instanceof Error ? error.message : 'Key 检测失败');
+        }
+      } else {
+        setNewsLlmKeyStatus({
+          provider: next.provider,
+          model: next.model,
+          api_base_url: next.api_base_url,
+          api_key_configured: false,
+          ok: false,
+          status: 'missing',
+          message: 'API Key 未配置',
+        });
+      }
       await load(true);
     } catch (error) {
       message.error(error instanceof Error ? error.message : '保存失败');
@@ -71,6 +104,20 @@ export default function Settings() {
       setLoading(false);
     }
   };
+
+  const validateNewsLlmKey = useCallback(async () => {
+    setValidatingKey(true);
+    try {
+      const status = await api.validateNewsLlmConfig();
+      setNewsLlmKeyStatus(status);
+      if (status.ok) message.success(status.message);
+      else message.warning(status.message);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '检测失败');
+    } finally {
+      setValidatingKey(false);
+    }
+  }, []);
 
   return (
     <>
@@ -80,7 +127,14 @@ export default function Settings() {
         extra={<Button icon={<ReloadOutlined />} onClick={() => load(true)}>刷新</Button>}
       />
       <SettingsCards settings={settings} />
-      <NewsLlmConfigCard config={newsLlmConfig} loading={loading} onSave={saveNewsLlmConfig} />
+      <NewsLlmConfigCard
+        config={newsLlmConfig}
+        keyStatus={newsLlmKeyStatus}
+        loading={loading}
+        validating={validatingKey}
+        onSave={saveNewsLlmConfig}
+        onValidate={validateNewsLlmKey}
+      />
       <TaskActions loading={loading} runTask={runTask} />
       <Card title="任务记录" className="table-card section-gap">
         <Table<CollectionJob> rowKey="id" loading={loading} dataSource={jobs} columns={jobColumns} pagination={{ pageSize: 8 }} />

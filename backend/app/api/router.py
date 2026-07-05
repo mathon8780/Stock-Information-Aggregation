@@ -20,7 +20,7 @@ from app.services.analysis_service import DISCLAIMER, analyze_stock, analyze_wat
 from app.services.event_bus import publish_event, subscribe, unsubscribe
 from app.services.ingest_service import normalize_code, record_collection_job
 from app.services.news_auto_sync_service import trigger_news_simplification
-from app.services.news_llm_config_service import news_llm_config_dict, save_news_llm_config
+from app.services.news_llm_config_service import news_llm_config_dict, save_news_llm_config, validate_news_llm_config_status
 from app.services.news_collector_service import NewsCollector
 from app.services.real_collector_service import AkshareCollector, DEFAULT_WATCHLIST
 from app.services.serializers import advice_dict, intraday_kline_dict, job_dict, kline_dict, news_dict, notification_dict, snapshot_dict, stock_dict, watchlist_dict
@@ -135,6 +135,11 @@ def update_news_llm_config(request: NewsLlmConfigRequest, db: Session = Depends(
     if config["api_key_configured"]:
         config["simplification_triggered"] = trigger_news_simplification()
     return config
+
+
+@router.post("/news-llm-config/validate")
+def validate_news_llm_config(db: Session = Depends(get_db)) -> dict[str, Any]:
+    return validate_news_llm_config_status(db)
 
 
 @router.get("/stocks")

@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
+import requests
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -70,6 +71,49 @@ def news_llm_config_dict(db: Session) -> dict[str, Any]:
         "effective_prompt": effective.prompt_text,
         "updated_at": row.updated_at.isoformat() if row else None,
     }
+
+
+def validate_news_llm_config_status(db: Session) -> dict[str, Any]:
+    effective = get_effective_news_llm_config(db)
+    checked_at = datetime.now(timezone.utc).isoformat()
+    base = {
+        "provider": effective.provider,
+        "model": effective.model,
+        "api_base_url": effective.api_base_url,
+        "api_key_configured": effective.api_key_configured,
+        "checked_at": checked_at,
+    }
+    if not effective.api_key_configured:
+        return {**base, "ok": False, "status": "missing", "message": "API Key 未配置"}
+
+    endpoint = effective.api_base_url.rstrip("/")
+    if not endpoint.endswith("/chat/completions"):
+        endpoint = f"{endpoint}/chat/completions"
+    payload: dict[str, Any] = {
+        "model": effective.model,
+        "messages": [{"role": "user", "content": "ping"}],
+        "temperature": 0,
+        "max_tokens": 1,
+    }
+    if effective.provider.lower() == "deepseek" or "api.deepseek.com" in effective.api_base_url.lower():
+        payload["thinking"] = {"type": "disabled"}
+
+    try:
+        response = requests.post(
+            endpoint,
+            timeout=min(settings.news_llm_timeout_seconds, 15),
+            headers={"Authorization": f"Bearer {effective.api_key}", "Content-Type": "application/json"},
+            json=payload,
+        )
+        response.raise_for_status()
+        data = response.json()
+    except Exception as exc:
+        return {**base, "ok": False, "status": "invalid", "message": f"API Key 检测失败：{exc}"}
+
+    choices = data.get("choices") if isinstance(data, dict) else None
+    if not isinstance(choices, list) or not choices:
+        return {**base, "ok": False, "status": "invalid", "message": "API Key 检测失败：响应缺少 choices"}
+    return {**base, "ok": True, "status": "valid", "message": "API Key 可用"}
 
 
 def save_news_llm_config(db: Session, payload: dict[str, Any]) -> NewsLlmConfig:

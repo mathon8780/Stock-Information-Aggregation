@@ -1,15 +1,26 @@
-import { KeyOutlined, SaveOutlined } from '@ant-design/icons';
+import { KeyOutlined, SafetyCertificateOutlined, SaveOutlined } from '@ant-design/icons';
 import { Alert, Button, Card, Col, Form, Input, Row, Select, Space, Tag } from 'antd';
 import { useEffect } from 'react';
-import type { NewsLlmConfig, NewsLlmConfigPayload } from '../../types';
+import { formatTime } from '../../api/client';
+import type { NewsLlmConfig, NewsLlmConfigPayload, NewsLlmKeyStatus } from '../../types';
 
 type Props = {
   config: NewsLlmConfig | null;
+  keyStatus: NewsLlmKeyStatus | null;
   loading: boolean;
+  validating: boolean;
   onSave: (payload: NewsLlmConfigPayload) => Promise<void>;
+  onValidate: () => Promise<void>;
 };
 
-export default function NewsLlmConfigCard({ config, loading, onSave }: Props) {
+function keyStatusTag(status: NewsLlmKeyStatus | null) {
+  if (!status) return <Tag>Key 未检测</Tag>;
+  if (status.status === 'valid') return <Tag color="green">Key 正常</Tag>;
+  if (status.status === 'missing') return <Tag color="orange">Key 未配置</Tag>;
+  return <Tag color="red">Key 异常</Tag>;
+}
+
+export default function NewsLlmConfigCard({ config, keyStatus, loading, validating, onSave, onValidate }: Props) {
   const [form] = Form.useForm<NewsLlmConfigPayload>();
 
   useEffect(() => {
@@ -41,13 +52,13 @@ export default function NewsLlmConfigCard({ config, loading, onSave }: Props) {
     <Card
       title={<Space><KeyOutlined />新闻 LLM 配置</Space>}
       className="section-gap"
-      extra={<Tag color={config?.api_key_configured ? 'green' : 'orange'}>{config?.api_key_configured ? 'Key 已配置' : 'Key 未配置'}</Tag>}
+      extra={<Space wrap><Tag color={config?.api_key_configured ? 'green' : 'orange'}>{config?.api_key_configured ? 'Key 已配置' : 'Key 未配置'}</Tag>{keyStatusTag(keyStatus)}</Space>}
     >
       <Alert
-        type="info"
+        type={keyStatus?.status === 'invalid' ? 'warning' : 'info'}
         showIcon
         className="settings-alert"
-        message="默认 Prompt 会在没有自定义 Prompt 时生效；API Key 只保存在后端，前端不会回显。"
+        message={keyStatus ? `${keyStatus.message}${keyStatus.checked_at ? `，检测时间：${formatTime(keyStatus.checked_at)}` : ''}` : 'API Key 只保存在后端，前端不会回显。'}
       />
       <Form<NewsLlmConfigPayload> form={form} layout="vertical" onFinish={submit} className="settings-form">
         <Row gutter={[16, 0]}>
@@ -84,6 +95,7 @@ export default function NewsLlmConfigCard({ config, loading, onSave }: Props) {
         </Row>
         <Space wrap>
           <Button type="primary" htmlType="submit" icon={<SaveOutlined />} loading={loading}>保存 LLM 配置</Button>
+          <Button icon={<SafetyCertificateOutlined />} loading={validating} onClick={onValidate}>检测 Key</Button>
           <span className="muted">当前生效：{config?.custom_prompt_configured ? '自定义 Prompt' : '默认 Prompt'}</span>
         </Space>
       </Form>

@@ -11,12 +11,13 @@ import AdviceHistory from '../features/stock-detail/components/AdviceHistory';
 import QuoteOverview from '../features/stock-detail/components/QuoteOverview';
 import RelatedNews from '../features/stock-detail/components/RelatedNews';
 import StrategySummary from '../features/stock-detail/components/StrategySummary';
+import { selectDefaultKlineMode, type KlineMode } from '../features/stock-detail/klineMode';
 import TechnicalIndicators from '../features/stock-detail/components/TechnicalIndicators';
 import { useBackendEvents } from '../hooks/useBackendEvents';
+import { useThemeMode } from '../theme/ThemeModeContext';
 import type { Advice, IntradayKline, Kline, NewsItem, Snapshot, Stock } from '../types';
 
 type StockDetailData = Stock & { latest_snapshot?: Snapshot | null; latest_advice?: Advice | null; is_watched: boolean };
-type KlineMode = 'daily' | 'intraday' | 'latest_intraday';
 const INTRADAY_REFRESH_MS = 60_000;
 
 export default function StockDetail() {
@@ -34,6 +35,8 @@ export default function StockDetail() {
   const [dailyKlineRefreshing, setDailyKlineRefreshing] = useState(false);
   const [lastIntradayRefresh, setLastIntradayRefresh] = useState<string | null>(null);
   const intradayRefreshInFlight = useRef(false);
+  const defaultModeCodeRef = useRef<string | null>(null);
+  const { mode: themeMode } = useThemeMode();
 
   const load = useCallback(async (showSpinner = true) => {
     if (!code) return;
@@ -48,6 +51,10 @@ export default function StockDetail() {
         api.stockNews(code, 10),
         api.adviceHistory(code, 20),
       ]);
+      if (defaultModeCodeRef.current !== stockRes.code) {
+        setKlineMode(selectDefaultKlineMode(stockRes.is_watched));
+        defaultModeCodeRef.current = stockRes.code;
+      }
       setStock(stockRes);
       setKline(klineRes.items);
       setIntraday1m(currentIntradayRes.items);
@@ -134,14 +141,14 @@ export default function StockDetail() {
     }
   };
 
-  const klineOption = useMemo(() => createKlineOption(kline), [kline]);
+  const klineOption = useMemo(() => createKlineOption(kline, themeMode), [kline, themeMode]);
   const latestIntraday = useMemo(() => {
     const latestDate = intraday1m.at(-1)?.bar_time.slice(0, 10);
     return latestDate ? intraday1m.filter((item) => item.bar_time.startsWith(latestDate)) : [];
   }, [intraday1m]);
-  const intradayOption = useMemo(() => createIntradayKlineOption(intraday5m), [intraday5m]);
-  const latestIntradayOption = useMemo(() => createIntradayKlineOption(latestIntraday), [latestIntraday]);
-  const snapshotOption = useMemo(() => createSnapshotOption(snapshots), [snapshots]);
+  const intradayOption = useMemo(() => createIntradayKlineOption(intraday5m, themeMode), [intraday5m, themeMode]);
+  const latestIntradayOption = useMemo(() => createIntradayKlineOption(latestIntraday, themeMode), [latestIntraday, themeMode]);
+  const snapshotOption = useMemo(() => createSnapshotOption(snapshots, themeMode), [snapshots, themeMode]);
 
   if (loading) return <Spin fullscreen tip="加载个股详情" />;
   if (!stock) return null;
@@ -211,9 +218,9 @@ export default function StockDetail() {
       </Row>
 
       <Row gutter={[16, 16]} className="section-gap">
-        <Col xs={24} lg={8}><TechnicalIndicators indicators={indicators} /></Col>
-        <Col xs={24} lg={8}><RelatedNews news={news} /></Col>
-        <Col xs={24} lg={8}><AdviceHistory history={history} /></Col>
+        <Col xs={24} lg={6} xl={5}><TechnicalIndicators indicators={indicators} /></Col>
+        <Col xs={24} lg={6} xl={7}><RelatedNews news={news} /></Col>
+        <Col xs={24} lg={12}><AdviceHistory history={history} /></Col>
       </Row>
 
       <div className="section-gap"><RiskNotice /></div>

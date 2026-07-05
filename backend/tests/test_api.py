@@ -776,6 +776,73 @@ def test_news_llm_config_is_saved_without_returning_key():
             api_router.trigger_news_simplification = original
 
 
+def test_news_llm_config_validate_reports_missing_key():
+    with TestClient(app) as client:
+        clear_response = client.put(
+            "/api/v1/news-llm-config",
+            json={
+                "provider": "deepseek",
+                "api_base_url": "https://api.deepseek.com",
+                "model": "deepseek-v4-flash",
+                "clear_api_key": True,
+                "prompt_preset": "default",
+            },
+        )
+        assert clear_response.status_code == 200
+
+        response = client.post("/api/v1/news-llm-config/validate")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["api_key_configured"] is False
+        assert body["ok"] is False
+        assert body["status"] == "missing"
+        assert body["message"] == "API Key 未配置"
+
+
+def test_news_llm_config_validate_checks_configured_key(monkeypatch):
+    captured = {}
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"choices": [{"message": {"content": "ok"}}]}
+
+    def fake_post(endpoint, timeout, headers, json):
+        captured.update({"endpoint": endpoint, "timeout": timeout, "headers": headers, "json": json})
+        return FakeResponse()
+
+    monkeypatch.setattr("app.services.news_llm_config_service.requests.post", fake_post)
+
+    with TestClient(app) as client:
+        save_response = client.put(
+            "/api/v1/news-llm-config",
+            json={
+                "provider": "deepseek",
+                "api_base_url": "https://api.deepseek.com",
+                "model": "deepseek-v4-flash",
+                "api_key": "secret-key",
+                "prompt_preset": "default",
+            },
+        )
+        assert save_response.status_code == 200
+
+        response = client.post("/api/v1/news-llm-config/validate")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["api_key_configured"] is True
+        assert body["ok"] is True
+        assert body["status"] == "valid"
+        assert body["provider"] == "deepseek"
+        assert body["model"] == "deepseek-v4-flash"
+        assert captured["endpoint"] == "https://api.deepseek.com/chat/completions"
+        assert captured["headers"]["Authorization"] == "Bearer secret-key"
+        assert captured["json"]["messages"][0]["content"] == "ping"
+
+
 def test_simplify_pending_news_updates_existing_metadata(monkeypatch):
     monkeypatch.setattr(api_router, "AkshareCollector", lambda: AkshareCollector(FakeAkshare(), sleep_fn=lambda _: None))
     monkeypatch.setattr(

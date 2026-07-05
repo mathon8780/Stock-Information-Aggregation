@@ -1,4 +1,4 @@
-import type { Advice, CollectionJob, CollectorStartResult, IntradayKline, Kline, NewsItem, NewsLlmConfig, NewsLlmConfigPayload, NotificationItem, Paged, Snapshot, Stock, WatchItem } from '../types';
+import type { Advice, CollectionJob, CollectorStartResult, IntradayKline, Kline, NewsItem, NewsLlmConfig, NewsLlmConfigPayload, NewsLlmKeyStatus, NotificationItem, Paged, Snapshot, Stock, WatchItem } from '../types';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000/api/v1';
 
@@ -34,6 +34,7 @@ export const api = {
   settings: () => request<Record<string, any>>('/settings'),
   newsLlmConfig: () => request<NewsLlmConfig>('/news-llm-config'),
   updateNewsLlmConfig: (payload: NewsLlmConfigPayload) => request<NewsLlmConfig>('/news-llm-config', { method: 'PUT', body: JSON.stringify(payload) }),
+  validateNewsLlmConfig: () => request<NewsLlmKeyStatus>('/news-llm-config/validate', { method: 'POST' }),
   stocks: (q: string, securityType = 'stock') => {
     const params = new URLSearchParams();
     if (q.trim()) params.set('q', q.trim());

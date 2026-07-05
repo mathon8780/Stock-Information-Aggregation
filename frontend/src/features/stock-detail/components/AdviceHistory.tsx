@@ -1,21 +1,21 @@
-import { Card, Space, Timeline, Typography } from 'antd';
-import { formatNumber, formatTime } from '../../../api/client';
-import SignalTag from '../../../components/SignalTag';
+import { Card, Empty } from 'antd';
+import ReactECharts from 'echarts-for-react';
+import { useMemo } from 'react';
+import { createAdviceTrendOption } from '../charts/stockCharts';
+import { useThemeMode } from '../../../theme/ThemeModeContext';
 import type { Advice } from '../../../types';
 
 export default function AdviceHistory({ history }: { history: Advice[] }) {
+  const { mode: themeMode } = useThemeMode();
+  const option = useMemo(() => createAdviceTrendOption(history, themeMode), [history, themeMode]);
+
   return (
     <Card title="历史建议">
-      <Timeline
-        items={history.map((item) => ({
-          children: (
-            <Space direction="vertical" size={2}>
-              <Space><SignalTag signal={item.signal} /><span>{formatNumber(item.confidence, 0)}%</span></Space>
-              <Typography.Text type="secondary">{formatTime(item.created_at)}</Typography.Text>
-            </Space>
-          ),
-        }))}
-      />
+      {history.length > 0 ? (
+        <ReactECharts option={option} className="advice-trend-chart" style={{ height: 280 }} />
+      ) : (
+        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无历史建议" />
+      )}
     </Card>
   );
 }
