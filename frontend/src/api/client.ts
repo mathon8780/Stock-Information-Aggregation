@@ -77,7 +77,13 @@ export const api = {
   paperPerformanceCalendar: (token: string, limit = 30) => request<Paged<PaperPerformanceCalendarDay>>(`/paper/performance/calendar?limit=${limit}`, { headers: paperAuth(token) }),
   resetPaperAccount: (token: string) => request<PaperSummary>('/paper/account/reset', { method: 'POST', headers: paperAuth(token) }),
   paperPositions: (token: string) => request<Paged<PaperPosition>>('/paper/positions', { headers: paperAuth(token) }),
-  paperOrders: (token: string) => request<Paged<PaperOrder>>('/paper/orders', { headers: paperAuth(token) }),
+  paperOrders: (token: string, filters: { code?: string; side?: string; order_type?: string; status?: string } = {}) => {
+    const params = new URLSearchParams({ page_size: '50' });
+    Object.entries(filters).forEach(([key, value]) => {
+      if (value) params.set(key, value);
+    });
+    return request<Paged<PaperOrder>>(`/paper/orders?${params.toString()}`, { headers: paperAuth(token) });
+  },
   createPaperOrder: (token: string, payload: { code: string; side: 'buy' | 'sell'; order_type: string; quantity: number; limit_price?: number | null; trigger_price?: number | null }) =>
     request<PaperOrder>('/paper/orders', { method: 'POST', headers: paperAuth(token), body: JSON.stringify(payload) }),
   cancelPaperOrder: (token: string, orderId: number) => request<PaperOrder>(`/paper/orders/${orderId}/cancel`, { method: 'POST', headers: paperAuth(token) }),

@@ -221,8 +221,17 @@ def create_paper_order(request: PaperOrderRequest, account=Depends(_paper_accoun
 
 
 @router.get("/paper/orders")
-def get_paper_orders(account=Depends(_paper_account), db: Session = Depends(get_db)) -> dict[str, Any]:
-    return list_orders(db, account)
+def get_paper_orders(
+    code: str | None = None,
+    side: str | None = None,
+    order_type: str | None = None,
+    status: str | None = None,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200),
+    account=Depends(_paper_account),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    return list_orders(db, account, code=code, side=side, order_type=order_type, status=status, page=page, page_size=page_size)
 
 
 @router.post("/paper/orders/{order_id}/cancel")

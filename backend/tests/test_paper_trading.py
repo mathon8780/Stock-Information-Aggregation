@@ -256,6 +256,42 @@ def test_limit_buy_pending_freezes_cash_and_cancel_releases_it():
         assert released["open_order_count"] == 0
 
 
+def test_paper_orders_support_filtering_and_pagination():
+    reset_database()
+    seed_tradeable_stock(price=10.0)
+
+    with TestClient(app) as client:
+        token = create_and_login(client)
+        filled = client.post(
+            "/api/v1/paper/orders",
+            headers=auth(token),
+            json={"code": "300308.SZ", "side": "buy", "order_type": "market", "quantity": 100},
+        )
+        assert filled.status_code == 200
+
+        pending = client.post(
+            "/api/v1/paper/orders",
+            headers=auth(token),
+            json={"code": "300308.SZ", "side": "buy", "order_type": "limit", "quantity": 100, "limit_price": 9.0},
+        )
+        assert pending.status_code == 200
+
+        response = client.get(
+            "/api/v1/paper/orders?status=pending&order_type=limit&side=buy&code=300308.SZ&page=1&page_size=1",
+            headers=auth(token),
+        )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["total"] == 1
+        assert body["page"] == 1
+        assert body["page_size"] == 1
+        assert len(body["items"]) == 1
+        assert body["items"][0]["id"] == pending.json()["id"]
+        assert body["items"][0]["status"] == "pending"
+        assert body["items"][0]["order_type"] == "limit"
+
+
 def test_limit_sell_pending_freezes_position_and_cancel_releases_it():
     reset_database()
     seed_tradeable_stock(price=10.0)

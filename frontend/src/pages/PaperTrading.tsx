@@ -15,6 +15,7 @@ const PAPER_TOKEN_KEY = 'market-agent.paper-trading.token';
 
 type AccountFormValues = { owner_name: string; password: string };
 type OrderFormValues = { code: string; side: 'buy' | 'sell'; order_type: string; quantity: number; limit_price?: number | null; trigger_price?: number | null };
+type OrderFilterValues = { code?: string; side?: 'buy' | 'sell'; order_type?: PaperOrder['order_type']; status?: string };
 
 const orderStatusColor: Record<string, string> = {
   filled: 'green',
@@ -42,6 +43,7 @@ export default function PaperTrading() {
   const [performance, setPerformance] = useState<PaperPerformanceSummary | null>(null);
   const [stockPerformance, setStockPerformance] = useState<PaperStockPerformance[]>([]);
   const [calendarDays, setCalendarDays] = useState<PaperPerformanceCalendarDay[]>([]);
+  const [orderFilters, setOrderFilters] = useState<OrderFilterValues>({});
   const [positions, setPositions] = useState<PaperPosition[]>([]);
   const [orders, setOrders] = useState<PaperOrder[]>([]);
   const [trades, setTrades] = useState<PaperTrade[]>([]);
@@ -49,6 +51,7 @@ export default function PaperTrading() {
   const [loginForm] = Form.useForm<AccountFormValues>();
   const [createForm] = Form.useForm<AccountFormValues>();
   const [orderForm] = Form.useForm<OrderFormValues>();
+  const [orderFilterForm] = Form.useForm<OrderFilterValues>();
   const orderType = Form.useWatch('order_type', orderForm);
   const queryCode = searchParams.get('code')?.toUpperCase();
 
@@ -62,7 +65,7 @@ export default function PaperTrading() {
         api.paperPerformanceByStock(activeToken),
         api.paperPerformanceCalendar(activeToken),
         api.paperPositions(activeToken),
-        api.paperOrders(activeToken),
+        api.paperOrders(activeToken, orderFilters),
         api.paperTrades(activeToken),
         api.paperCashFlows(activeToken),
       ]);
@@ -86,7 +89,7 @@ export default function PaperTrading() {
       if (showSpinner) setLoading(false);
       else setLoading(false);
     }
-  }, [token]);
+  }, [orderFilters, token]);
 
   useEffect(() => {
     if (token) void load(token, true);
@@ -204,6 +207,20 @@ export default function PaperTrading() {
     } finally {
       setMatching(false);
     }
+  };
+
+  const applyOrderFilters = (values: OrderFilterValues) => {
+    setOrderFilters({
+      code: values.code?.trim().toUpperCase() || undefined,
+      side: values.side,
+      order_type: values.order_type,
+      status: values.status,
+    });
+  };
+
+  const resetOrderFilters = () => {
+    orderFilterForm.resetFields();
+    setOrderFilters({});
   };
 
   const positionColumns: ColumnsType<PaperPosition> = useMemo(() => [
@@ -426,6 +443,34 @@ export default function PaperTrading() {
       <Row gutter={[16, 16]} className="section-gap">
         <Col xs={24} xl={12}>
           <Card title="委托记录">
+            <Form form={orderFilterForm} layout="vertical" onFinish={applyOrderFilters} className="paper-filter-form">
+              <Row gutter={[12, 0]}>
+                <Col xs={24} sm={12} lg={6}>
+                  <Form.Item name="code" label="股票代码">
+                    <Input placeholder="300308.SZ" allowClear />
+                  </Form.Item>
+                </Col>
+                <Col xs={24} sm={12} lg={6}>
+                  <Form.Item name="side" label="方向">
+                    <Select allowClear options={[{ label: '买入', value: 'buy' }, { label: '卖出', value: 'sell' }]} />
+                  </Form.Item>
+                </Col>
+                <Col xs={24} sm={12} lg={6}>
+                  <Form.Item name="order_type" label="类型">
+                    <Select allowClear options={[{ label: '市价', value: 'market' }, { label: '限价', value: 'limit' }, { label: '止盈', value: 'take_profit' }, { label: '止损', value: 'stop_loss' }]} />
+                  </Form.Item>
+                </Col>
+                <Col xs={24} sm={12} lg={6}>
+                  <Form.Item name="status" label="状态">
+                    <Select allowClear options={[{ label: '已成交', value: 'filled' }, { label: '待成交', value: 'pending' }, { label: '监控中', value: 'monitoring' }, { label: '已撤销', value: 'cancelled' }, { label: '已拒绝', value: 'rejected' }]} />
+                  </Form.Item>
+                </Col>
+              </Row>
+              <Space className="paper-filter-actions">
+                <Button type="primary" htmlType="submit">筛选</Button>
+                <Button onClick={resetOrderFilters}>重置</Button>
+              </Space>
+            </Form>
             <Table<PaperOrder> rowKey="id" size="small" columns={orderColumns} dataSource={orders} pagination={{ pageSize: 6 }} scroll={{ x: 1160 }} />
           </Card>
         </Col>

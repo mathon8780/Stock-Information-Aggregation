@@ -494,6 +494,14 @@ html[data-theme='dark'] .ant-table-tbody > tr > td {
   width: 100%;
 }
 
+.paper-filter-form {
+  margin-bottom: 12px;
+}
+
+.paper-filter-actions {
+  margin-bottom: 12px;
+}
+
 .compact-list .ant-list-item {
   padding: 12px 0;
 }

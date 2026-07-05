@@ -327,9 +327,36 @@ def list_positions(db: Session, account: PaperAccount) -> dict[str, object]:
     return {"items": items, "total": len(items)}
 
 
-def list_orders(db: Session, account: PaperAccount) -> dict[str, object]:
-    rows = db.execute(select(PaperOrder, Stock).join(Stock, PaperOrder.stock_id == Stock.id).where(PaperOrder.account_id == account.id).order_by(desc(PaperOrder.created_at), desc(PaperOrder.id))).all()
-    return {"items": [order_dict(order, stock) for order, stock in rows], "total": len(rows)}
+def list_orders(
+    db: Session,
+    account: PaperAccount,
+    code: str | None = None,
+    side: str | None = None,
+    order_type: str | None = None,
+    status: str | None = None,
+    page: int = 1,
+    page_size: int = 50,
+) -> dict[str, object]:
+    conditions = [PaperOrder.account_id == account.id]
+    if code:
+        conditions.append(Stock.code == normalize_code(code))
+    if side:
+        conditions.append(PaperOrder.side == side)
+    if order_type:
+        conditions.append(PaperOrder.order_type == order_type)
+    if status:
+        conditions.append(PaperOrder.status == status)
+
+    total = db.execute(select(func.count()).select_from(PaperOrder).join(Stock, PaperOrder.stock_id == Stock.id).where(*conditions)).scalar_one()
+    rows = db.execute(
+        select(PaperOrder, Stock)
+        .join(Stock, PaperOrder.stock_id == Stock.id)
+        .where(*conditions)
+        .order_by(desc(PaperOrder.created_at), desc(PaperOrder.id))
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    ).all()
+    return {"items": [order_dict(order, stock) for order, stock in rows], "total": total, "page": page, "page_size": page_size}
 
 
 def list_trades(db: Session, account: PaperAccount) -> dict[str, object]:
