@@ -9,7 +9,7 @@ import PageHeader from '../components/PageHeader';
 import PriceText from '../components/PriceText';
 import StockLink from '../components/StockLink';
 import { useBackendEvents } from '../hooks/useBackendEvents';
-import type { PaperCashFlow, PaperOrder, PaperPerformanceSummary, PaperPosition, PaperSummary, PaperTrade } from '../types';
+import type { PaperCashFlow, PaperOrder, PaperPerformanceSummary, PaperPosition, PaperStockPerformance, PaperSummary, PaperTrade } from '../types';
 
 const PAPER_TOKEN_KEY = 'market-agent.paper-trading.token';
 
@@ -40,6 +40,7 @@ export default function PaperTrading() {
   const [matching, setMatching] = useState(false);
   const [summary, setSummary] = useState<PaperSummary | null>(null);
   const [performance, setPerformance] = useState<PaperPerformanceSummary | null>(null);
+  const [stockPerformance, setStockPerformance] = useState<PaperStockPerformance[]>([]);
   const [positions, setPositions] = useState<PaperPosition[]>([]);
   const [orders, setOrders] = useState<PaperOrder[]>([]);
   const [trades, setTrades] = useState<PaperTrade[]>([]);
@@ -54,9 +55,10 @@ export default function PaperTrading() {
     if (!activeToken) return;
     if (showSpinner) setLoading(true);
     try {
-      const [summaryRes, performanceRes, positionsRes, ordersRes, tradesRes, flowsRes] = await Promise.all([
+      const [summaryRes, performanceRes, stockPerformanceRes, positionsRes, ordersRes, tradesRes, flowsRes] = await Promise.all([
         api.paperSummary(activeToken),
         api.paperPerformanceSummary(activeToken),
+        api.paperPerformanceByStock(activeToken),
         api.paperPositions(activeToken),
         api.paperOrders(activeToken),
         api.paperTrades(activeToken),
@@ -64,6 +66,7 @@ export default function PaperTrading() {
       ]);
       setSummary(summaryRes);
       setPerformance(performanceRes);
+      setStockPerformance(stockPerformanceRes.items);
       setPositions(positionsRes.items);
       setOrders(ordersRes.items);
       setTrades(tradesRes.items);
@@ -74,6 +77,7 @@ export default function PaperTrading() {
       setToken('');
       setSummary(null);
       setPerformance(null);
+      setStockPerformance([]);
     } finally {
       if (showSpinner) setLoading(false);
       else setLoading(false);
@@ -126,6 +130,7 @@ export default function PaperTrading() {
     setToken('');
     setSummary(null);
     setPerformance(null);
+    setStockPerformance([]);
     setPositions([]);
     setOrders([]);
     setTrades([]);
@@ -205,6 +210,19 @@ export default function PaperTrading() {
     { title: '市值', width: 110, align: 'right', render: (_: unknown, row) => formatNumber(row.market_value, 2) },
     { title: '浮盈亏', width: 110, align: 'right', render: (_: unknown, row) => <PriceText value={row.floating_pnl} /> },
     { title: '收益率', width: 100, align: 'right', render: (_: unknown, row) => <PriceText value={row.floating_pnl_pct} suffix="%" /> },
+  ], []);
+
+  const stockPerformanceColumns: ColumnsType<PaperStockPerformance> = useMemo(() => [
+    { title: '股票', width: 150, render: (_: unknown, row) => <StockLink code={row.code} name={row.name} /> },
+    { title: '持仓', dataIndex: 'current_quantity', width: 80, align: 'right' },
+    { title: '买入量', dataIndex: 'buy_quantity', width: 90, align: 'right' },
+    { title: '卖出量', dataIndex: 'sell_quantity', width: 90, align: 'right' },
+    { title: '买入金额', width: 110, align: 'right', render: (_: unknown, row) => formatNumber(row.buy_amount, 2) },
+    { title: '卖出金额', width: 110, align: 'right', render: (_: unknown, row) => formatNumber(row.sell_amount, 2) },
+    { title: '费用', width: 90, align: 'right', render: (_: unknown, row) => formatNumber(row.fee_total, 2) },
+    { title: '已实现', width: 110, align: 'right', render: (_: unknown, row) => <PriceText value={row.realized_pnl} /> },
+    { title: '浮动', width: 110, align: 'right', render: (_: unknown, row) => <PriceText value={row.floating_pnl} /> },
+    { title: '合计盈亏', width: 110, align: 'right', render: (_: unknown, row) => <PriceText value={row.total_pnl} /> },
   ], []);
 
   const orderColumns: ColumnsType<PaperOrder> = useMemo(() => [
@@ -324,6 +342,12 @@ export default function PaperTrading() {
         <MetricCard title="平均盈亏" value={performance?.average_pnl} extra={`盈利 ${formatNumber(performance?.average_profit, 2)} / 亏损 ${formatNumber(performance?.average_loss, 2)}`} />
         <MetricCard title="最大单笔盈利" value={performance?.max_single_profit} extra={`闭合 ${performance?.closed_trade_count ?? 0} 笔`} />
         <MetricCard title="最大单笔亏损" value={performance?.max_single_loss} extra={`总收益率 ${formatNumber(performance?.total_return_pct, 2)}%`} />
+      </div>
+
+      <div className="section-gap">
+        <Card title="个股盈亏明细">
+          <Table<PaperStockPerformance> rowKey="stock_id" size="small" columns={stockPerformanceColumns} dataSource={stockPerformance} pagination={{ pageSize: 6 }} scroll={{ x: 1060 }} />
+        </Card>
       </div>
 
       <Row gutter={[16, 16]} className="section-gap">

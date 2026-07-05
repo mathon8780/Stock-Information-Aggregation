@@ -450,3 +450,54 @@ def test_paper_performance_summary_tracks_realized_returns():
         assert body["average_loss"] == 0.0
         assert body["max_single_profit"] == 198.23
         assert body["max_single_loss"] == 0.0
+
+
+def test_paper_performance_by_stock_summarizes_trades_and_position_pnl():
+    reset_database()
+    seed_tradeable_stock(price=10.0)
+
+    with TestClient(app) as client:
+        token = create_and_login(client)
+        bought = client.post(
+            "/api/v1/paper/orders",
+            headers=auth(token),
+            json={"code": "300308.SZ", "side": "buy", "order_type": "market", "quantity": 100},
+        )
+        assert bought.status_code == 200
+
+        with SessionLocal() as db:
+            position = db.query(PaperPosition).one()
+            position.available_quantity = 100
+            position.today_buy_quantity = 0
+            db.commit()
+
+        add_market_price(12.0, "paper-test-300308-by-stock")
+        sold = client.post(
+            "/api/v1/paper/orders",
+            headers=auth(token),
+            json={"code": "300308.SZ", "side": "sell", "order_type": "market", "quantity": 100},
+        )
+        assert sold.status_code == 200
+
+        response = client.get("/api/v1/paper/performance/by-stock", headers=auth(token))
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["total"] == 1
+        assert body["items"] == [
+            {
+                "stock_id": 1,
+                "code": "300308.SZ",
+                "name": "中际旭创",
+                "buy_quantity": 100,
+                "sell_quantity": 100,
+                "current_quantity": 0,
+                "buy_amount": 1000.0,
+                "sell_amount": 1200.0,
+                "fee_total": 1.77,
+                "realized_pnl": 198.23,
+                "floating_pnl": 0.0,
+                "total_pnl": 198.23,
+                "trade_count": 2,
+            }
+        ]

@@ -1,4 +1,4 @@
-import type { Advice, CollectionJob, CollectorStartResult, IntradayKline, Kline, NewsItem, NewsLlmConfig, NewsLlmConfigPayload, NewsLlmKeyStatus, NotificationItem, Paged, PaperAccount, PaperCashFlow, PaperOrder, PaperPerformanceSummary, PaperPosition, PaperSummary, PaperTrade, Snapshot, Stock, WatchItem } from '../types';
+import type { Advice, CollectionJob, CollectorStartResult, IntradayKline, Kline, NewsItem, NewsLlmConfig, NewsLlmConfigPayload, NewsLlmKeyStatus, NotificationItem, Paged, PaperAccount, PaperCashFlow, PaperOrder, PaperPerformanceSummary, PaperPosition, PaperStockPerformance, PaperSummary, PaperTrade, Snapshot, Stock, WatchItem } from '../types';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000/api/v1';
 
@@ -73,6 +73,7 @@ export const api = {
   loginPaperAccount: (payload: { owner_name: string; password: string }) => request<{ token: string; account: PaperAccount }>('/paper/sessions', { method: 'POST', body: JSON.stringify(payload) }),
   paperSummary: (token: string) => request<PaperSummary>('/paper/summary', { headers: paperAuth(token) }),
   paperPerformanceSummary: (token: string) => request<PaperPerformanceSummary>('/paper/performance/summary', { headers: paperAuth(token) }),
+  paperPerformanceByStock: (token: string) => request<Paged<PaperStockPerformance>>('/paper/performance/by-stock', { headers: paperAuth(token) }),
   resetPaperAccount: (token: string) => request<PaperSummary>('/paper/account/reset', { method: 'POST', headers: paperAuth(token) }),
   paperPositions: (token: string) => request<Paged<PaperPosition>>('/paper/positions', { headers: paperAuth(token) }),
   paperOrders: (token: string) => request<Paged<PaperOrder>>('/paper/orders', { headers: paperAuth(token) }),

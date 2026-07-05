@@ -145,6 +145,78 @@ def performance_summary(db: Session, account: PaperAccount) -> dict[str, object]
     }
 
 
+def performance_by_stock(db: Session, account: PaperAccount) -> dict[str, object]:
+    rows: dict[int, dict[str, object]] = {}
+
+    trade_rows = db.execute(
+        select(PaperTrade, Stock)
+        .join(Stock, PaperTrade.stock_id == Stock.id)
+        .where(PaperTrade.account_id == account.id)
+        .order_by(Stock.code)
+    ).all()
+    for trade, stock in trade_rows:
+        item = _performance_stock_item(rows, stock)
+        item["trade_count"] = int(item["trade_count"]) + 1
+        item["fee_total"] = Decimal(item["fee_total"]) + trade.fee_total
+        if trade.side == "buy":
+            item["buy_quantity"] = int(item["buy_quantity"]) + trade.quantity
+            item["buy_amount"] = Decimal(item["buy_amount"]) + trade.amount
+        else:
+            item["sell_quantity"] = int(item["sell_quantity"]) + trade.quantity
+            item["sell_amount"] = Decimal(item["sell_amount"]) + trade.amount
+            item["realized_pnl"] = Decimal(item["realized_pnl"]) + (trade.realized_pnl or Decimal("0.0000"))
+
+    for position, stock in _positions_with_stocks(db, account.id):
+        item = _performance_stock_item(rows, stock)
+        latest = _latest_price(db, stock.id).price
+        floating_pnl = latest * position.total_quantity - position.cost_amount
+        item["current_quantity"] = position.total_quantity
+        item["floating_pnl"] = floating_pnl
+
+    items = []
+    for item in rows.values():
+        realized_pnl = Decimal(item["realized_pnl"])
+        floating_pnl = Decimal(item["floating_pnl"])
+        items.append(
+            {
+                "stock_id": item["stock_id"],
+                "code": item["code"],
+                "name": item["name"],
+                "buy_quantity": item["buy_quantity"],
+                "sell_quantity": item["sell_quantity"],
+                "current_quantity": item["current_quantity"],
+                "buy_amount": _decimal(Decimal(item["buy_amount"])),
+                "sell_amount": _decimal(Decimal(item["sell_amount"])),
+                "fee_total": _decimal(Decimal(item["fee_total"])),
+                "realized_pnl": _decimal(realized_pnl),
+                "floating_pnl": _decimal(floating_pnl),
+                "total_pnl": _decimal(realized_pnl + floating_pnl),
+                "trade_count": item["trade_count"],
+            }
+        )
+    items.sort(key=lambda row: (row["total_pnl"], row["code"]), reverse=True)
+    return {"items": items, "total": len(items)}
+
+
+def _performance_stock_item(rows: dict[int, dict[str, object]], stock: Stock) -> dict[str, object]:
+    if stock.id not in rows:
+        rows[stock.id] = {
+            "stock_id": stock.id,
+            "code": stock.code,
+            "name": stock.name,
+            "buy_quantity": 0,
+            "sell_quantity": 0,
+            "current_quantity": 0,
+            "buy_amount": Decimal("0.0000"),
+            "sell_amount": Decimal("0.0000"),
+            "fee_total": Decimal("0.0000"),
+            "realized_pnl": Decimal("0.0000"),
+            "floating_pnl": Decimal("0.0000"),
+            "trade_count": 0,
+        }
+    return rows[stock.id]
+
+
 def list_positions(db: Session, account: PaperAccount) -> dict[str, object]:
     items = []
     for position, stock in _positions_with_stocks(db, account.id):
