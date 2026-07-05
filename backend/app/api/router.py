@@ -31,6 +31,7 @@ from app.services.paper_trading_service import (
     list_trades,
     login_account,
     performance_by_stock,
+    performance_calendar,
     performance_summary,
     place_order,
     portfolio_summary,
@@ -188,6 +189,11 @@ def get_paper_performance_summary(account=Depends(_paper_account), db: Session =
 @router.get("/paper/performance/by-stock")
 def get_paper_performance_by_stock(account=Depends(_paper_account), db: Session = Depends(get_db)) -> dict[str, Any]:
     return performance_by_stock(db, account)
+
+
+@router.get("/paper/performance/calendar")
+def get_paper_performance_calendar(limit: int = Query(30, ge=1, le=365), account=Depends(_paper_account), db: Session = Depends(get_db)) -> dict[str, Any]:
+    return performance_calendar(db, account, limit)
 
 
 @router.post("/paper/account/reset")

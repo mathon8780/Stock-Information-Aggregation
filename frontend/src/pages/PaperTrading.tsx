@@ -9,7 +9,7 @@ import PageHeader from '../components/PageHeader';
 import PriceText from '../components/PriceText';
 import StockLink from '../components/StockLink';
 import { useBackendEvents } from '../hooks/useBackendEvents';
-import type { PaperCashFlow, PaperOrder, PaperPerformanceSummary, PaperPosition, PaperStockPerformance, PaperSummary, PaperTrade } from '../types';
+import type { PaperCashFlow, PaperOrder, PaperPerformanceCalendarDay, PaperPerformanceSummary, PaperPosition, PaperStockPerformance, PaperSummary, PaperTrade } from '../types';
 
 const PAPER_TOKEN_KEY = 'market-agent.paper-trading.token';
 
@@ -41,6 +41,7 @@ export default function PaperTrading() {
   const [summary, setSummary] = useState<PaperSummary | null>(null);
   const [performance, setPerformance] = useState<PaperPerformanceSummary | null>(null);
   const [stockPerformance, setStockPerformance] = useState<PaperStockPerformance[]>([]);
+  const [calendarDays, setCalendarDays] = useState<PaperPerformanceCalendarDay[]>([]);
   const [positions, setPositions] = useState<PaperPosition[]>([]);
   const [orders, setOrders] = useState<PaperOrder[]>([]);
   const [trades, setTrades] = useState<PaperTrade[]>([]);
@@ -55,10 +56,11 @@ export default function PaperTrading() {
     if (!activeToken) return;
     if (showSpinner) setLoading(true);
     try {
-      const [summaryRes, performanceRes, stockPerformanceRes, positionsRes, ordersRes, tradesRes, flowsRes] = await Promise.all([
+      const [summaryRes, performanceRes, stockPerformanceRes, calendarRes, positionsRes, ordersRes, tradesRes, flowsRes] = await Promise.all([
         api.paperSummary(activeToken),
         api.paperPerformanceSummary(activeToken),
         api.paperPerformanceByStock(activeToken),
+        api.paperPerformanceCalendar(activeToken),
         api.paperPositions(activeToken),
         api.paperOrders(activeToken),
         api.paperTrades(activeToken),
@@ -67,6 +69,7 @@ export default function PaperTrading() {
       setSummary(summaryRes);
       setPerformance(performanceRes);
       setStockPerformance(stockPerformanceRes.items);
+      setCalendarDays(calendarRes.items);
       setPositions(positionsRes.items);
       setOrders(ordersRes.items);
       setTrades(tradesRes.items);
@@ -78,6 +81,7 @@ export default function PaperTrading() {
       setSummary(null);
       setPerformance(null);
       setStockPerformance([]);
+      setCalendarDays([]);
     } finally {
       if (showSpinner) setLoading(false);
       else setLoading(false);
@@ -131,6 +135,7 @@ export default function PaperTrading() {
     setSummary(null);
     setPerformance(null);
     setStockPerformance([]);
+    setCalendarDays([]);
     setPositions([]);
     setOrders([]);
     setTrades([]);
@@ -223,6 +228,17 @@ export default function PaperTrading() {
     { title: '已实现', width: 110, align: 'right', render: (_: unknown, row) => <PriceText value={row.realized_pnl} /> },
     { title: '浮动', width: 110, align: 'right', render: (_: unknown, row) => <PriceText value={row.floating_pnl} /> },
     { title: '合计盈亏', width: 110, align: 'right', render: (_: unknown, row) => <PriceText value={row.total_pnl} /> },
+  ], []);
+
+  const calendarColumns: ColumnsType<PaperPerformanceCalendarDay> = useMemo(() => [
+    { title: '日期', dataIndex: 'trade_date', width: 120 },
+    { title: '当日 P&L', width: 120, align: 'right', render: (_: unknown, row) => <PriceText value={row.realized_pnl} /> },
+    { title: '买入金额', width: 120, align: 'right', render: (_: unknown, row) => formatNumber(row.buy_amount, 2) },
+    { title: '卖出金额', width: 120, align: 'right', render: (_: unknown, row) => formatNumber(row.sell_amount, 2) },
+    { title: '费用', width: 90, align: 'right', render: (_: unknown, row) => formatNumber(row.fee_total, 2) },
+    { title: '成交', dataIndex: 'trade_count', width: 80, align: 'right' },
+    { title: '委托', dataIndex: 'order_count', width: 80, align: 'right' },
+    { title: '流水', dataIndex: 'cash_flow_count', width: 80, align: 'right' },
   ], []);
 
   const orderColumns: ColumnsType<PaperOrder> = useMemo(() => [
@@ -350,6 +366,20 @@ export default function PaperTrading() {
         </Card>
       </div>
 
+      <div className="section-gap">
+        <Card title="交易日历">
+          <Table<PaperPerformanceCalendarDay>
+            rowKey="trade_date"
+            size="small"
+            columns={calendarColumns}
+            dataSource={calendarDays}
+            pagination={{ pageSize: 6 }}
+            scroll={{ x: 830 }}
+            expandable={{ expandedRowRender: renderCalendarDetails }}
+          />
+        </Card>
+      </div>
+
       <Row gutter={[16, 16]} className="section-gap">
         <Col xs={24} xl={8}>
           <Card title={<Space><ShoppingCartOutlined />下单面板</Space>} className="paper-order-card">
@@ -423,4 +453,41 @@ function orderTypeLabel(value: PaperOrder['order_type']): string {
     stop_loss: '止损',
   };
   return labels[value] ?? value;
+}
+
+function renderCalendarDetails(day: PaperPerformanceCalendarDay) {
+  return (
+    <Row gutter={[16, 16]}>
+      <Col xs={24} lg={8}>
+        <Typography.Text type="secondary">当日成交</Typography.Text>
+        <Space direction="vertical" size={4} className="paper-calendar-detail">
+          {day.trades.map((trade) => (
+            <Typography.Text key={trade.id}>
+              {trade.code} {trade.side === 'buy' ? '买入' : '卖出'} {trade.quantity} 股，{formatNumber(trade.amount, 2)} 元
+            </Typography.Text>
+          ))}
+        </Space>
+      </Col>
+      <Col xs={24} lg={8}>
+        <Typography.Text type="secondary">委托变更</Typography.Text>
+        <Space direction="vertical" size={4} className="paper-calendar-detail">
+          {day.orders.map((order) => (
+            <Typography.Text key={order.id}>
+              {order.code} {orderTypeLabel(order.order_type)} {order.status}，成交 {order.filled_quantity}/{order.quantity}
+            </Typography.Text>
+          ))}
+        </Space>
+      </Col>
+      <Col xs={24} lg={8}>
+        <Typography.Text type="secondary">资金流水</Typography.Text>
+        <Space direction="vertical" size={4} className="paper-calendar-detail">
+          {day.cash_flows.map((flow) => (
+            <Typography.Text key={flow.id}>
+              {flowLabels[flow.flow_type] ?? flow.flow_type} <PriceText value={flow.amount} />
+            </Typography.Text>
+          ))}
+        </Space>
+      </Col>
+    </Row>
+  );
 }

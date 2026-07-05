@@ -501,3 +501,48 @@ def test_paper_performance_by_stock_summarizes_trades_and_position_pnl():
                 "trade_count": 2,
             }
         ]
+
+
+def test_paper_performance_calendar_groups_daily_trading_activity():
+    reset_database()
+    seed_tradeable_stock(price=10.0)
+
+    with TestClient(app) as client:
+        token = create_and_login(client)
+        bought = client.post(
+            "/api/v1/paper/orders",
+            headers=auth(token),
+            json={"code": "300308.SZ", "side": "buy", "order_type": "market", "quantity": 100},
+        )
+        assert bought.status_code == 200
+
+        with SessionLocal() as db:
+            position = db.query(PaperPosition).one()
+            position.available_quantity = 100
+            position.today_buy_quantity = 0
+            db.commit()
+
+        add_market_price(12.0, "paper-test-300308-calendar")
+        sold = client.post(
+            "/api/v1/paper/orders",
+            headers=auth(token),
+            json={"code": "300308.SZ", "side": "sell", "order_type": "market", "quantity": 100},
+        )
+        assert sold.status_code == 200
+
+        response = client.get("/api/v1/paper/performance/calendar", headers=auth(token))
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["total"] == 1
+        row = body["items"][0]
+        assert row["realized_pnl"] == 198.23
+        assert row["buy_amount"] == 1000.0
+        assert row["sell_amount"] == 1200.0
+        assert row["fee_total"] == 1.77
+        assert row["trade_count"] == 2
+        assert row["order_count"] == 2
+        assert row["cash_flow_count"] == 4
+        assert [trade["side"] for trade in row["trades"]] == ["sell", "buy"]
+        assert {order["status"] for order in row["orders"]} == {"filled"}
+        assert [flow["flow_type"] for flow in row["cash_flows"]] == ["fee", "sell_income", "fee", "buy_cost"]

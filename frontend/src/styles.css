@@ -489,6 +489,11 @@ html[data-theme='dark'] .ant-table-tbody > tr > td {
   line-height: 18px;
 }
 
+.paper-calendar-detail {
+  display: flex;
+  width: 100%;
+}
+
 .compact-list .ant-list-item {
   padding: 12px 0;
 }

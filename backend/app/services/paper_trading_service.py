@@ -198,6 +198,68 @@ def performance_by_stock(db: Session, account: PaperAccount) -> dict[str, object
     return {"items": items, "total": len(items)}
 
 
+def performance_calendar(db: Session, account: PaperAccount, limit: int = 30) -> dict[str, object]:
+    days: dict[str, dict[str, object]] = {}
+
+    trade_rows = db.execute(
+        select(PaperTrade, Stock)
+        .join(Stock, PaperTrade.stock_id == Stock.id)
+        .where(PaperTrade.account_id == account.id)
+        .order_by(desc(PaperTrade.trade_time), desc(PaperTrade.id))
+    ).all()
+    for trade, stock in trade_rows:
+        item = _calendar_day(days, trade.trade_time)
+        item["trade_count"] = int(item["trade_count"]) + 1
+        item["fee_total"] = Decimal(item["fee_total"]) + trade.fee_total
+        if trade.side == "buy":
+            item["buy_amount"] = Decimal(item["buy_amount"]) + trade.amount
+        else:
+            item["sell_amount"] = Decimal(item["sell_amount"]) + trade.amount
+            item["realized_pnl"] = Decimal(item["realized_pnl"]) + (trade.realized_pnl or Decimal("0.0000"))
+        item["trades"].append(trade_dict(trade, stock))
+
+    order_rows = db.execute(
+        select(PaperOrder, Stock)
+        .join(Stock, PaperOrder.stock_id == Stock.id)
+        .where(PaperOrder.account_id == account.id)
+        .order_by(desc(PaperOrder.created_at), desc(PaperOrder.id))
+    ).all()
+    for order, stock in order_rows:
+        item = _calendar_day(days, order.created_at)
+        item["order_count"] = int(item["order_count"]) + 1
+        item["orders"].append(order_dict(order, stock))
+
+    cash_flows = db.execute(
+        select(PaperCashFlow)
+        .where(PaperCashFlow.account_id == account.id)
+        .order_by(desc(PaperCashFlow.created_at), desc(PaperCashFlow.id))
+    ).scalars().all()
+    for flow in cash_flows:
+        item = _calendar_day(days, flow.created_at)
+        item["cash_flow_count"] = int(item["cash_flow_count"]) + 1
+        item["cash_flows"].append(cash_flow_dict(flow))
+
+    items = []
+    for item in days.values():
+        items.append(
+            {
+                "trade_date": item["trade_date"],
+                "realized_pnl": _decimal(Decimal(item["realized_pnl"])),
+                "buy_amount": _decimal(Decimal(item["buy_amount"])),
+                "sell_amount": _decimal(Decimal(item["sell_amount"])),
+                "fee_total": _decimal(Decimal(item["fee_total"])),
+                "trade_count": item["trade_count"],
+                "order_count": item["order_count"],
+                "cash_flow_count": item["cash_flow_count"],
+                "trades": item["trades"],
+                "orders": item["orders"],
+                "cash_flows": item["cash_flows"],
+            }
+        )
+    items.sort(key=lambda row: row["trade_date"], reverse=True)
+    return {"items": items[:limit], "total": len(items)}
+
+
 def _performance_stock_item(rows: dict[int, dict[str, object]], stock: Stock) -> dict[str, object]:
     if stock.id not in rows:
         rows[stock.id] = {
@@ -215,6 +277,25 @@ def _performance_stock_item(rows: dict[int, dict[str, object]], stock: Stock) ->
             "trade_count": 0,
         }
     return rows[stock.id]
+
+
+def _calendar_day(rows: dict[str, dict[str, object]], value: datetime) -> dict[str, object]:
+    trade_date = value.date().isoformat()
+    if trade_date not in rows:
+        rows[trade_date] = {
+            "trade_date": trade_date,
+            "realized_pnl": Decimal("0.0000"),
+            "buy_amount": Decimal("0.0000"),
+            "sell_amount": Decimal("0.0000"),
+            "fee_total": Decimal("0.0000"),
+            "trade_count": 0,
+            "order_count": 0,
+            "cash_flow_count": 0,
+            "trades": [],
+            "orders": [],
+            "cash_flows": [],
+        }
+    return rows[trade_date]
 
 
 def list_positions(db: Session, account: PaperAccount) -> dict[str, object]:
