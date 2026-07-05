@@ -132,7 +132,7 @@ export default function PaperTrading() {
     }
   };
 
-  const logout = () => {
+  const clearSession = () => {
     localStorage.removeItem(PAPER_TOKEN_KEY);
     setToken('');
     setSummary(null);
@@ -143,6 +143,24 @@ export default function PaperTrading() {
     setOrders([]);
     setTrades([]);
     setFlows([]);
+  };
+
+  const logout = async () => {
+    const activeToken = token;
+    if (!activeToken) {
+      clearSession();
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await api.logoutPaperAccount(activeToken);
+      message.success('已退出模拟交易账户');
+    } catch {
+      message.info('本地登录状态已清除');
+    } finally {
+      clearSession();
+      setSubmitting(false);
+    }
   };
 
   const resetAccount = async () => {
@@ -354,7 +372,7 @@ export default function PaperTrading() {
             <Popconfirm title="重置模拟账户？" description="持仓、委托、成交和流水会被清空。" okText="重置" cancelText="取消" onConfirm={resetAccount}>
               <Button danger loading={submitting}>重置账户</Button>
             </Popconfirm>
-            <Button onClick={logout}>退出</Button>
+            <Button onClick={logout} loading={submitting}>退出</Button>
           </Space>
         )}
       />

@@ -91,6 +91,26 @@ def test_paper_account_create_login_and_summary_require_session():
         assert duplicate.status_code == 400
 
 
+def test_paper_account_current_and_logout_revoke_session():
+    reset_database()
+
+    with TestClient(app) as client:
+        token = create_and_login(client)
+        account = client.get("/api/v1/paper/account", headers=auth(token))
+
+        assert account.status_code == 200
+        assert account.json()["owner_name"] == "demo"
+        assert account.json()["cash_balance"] == 500000.0
+
+        logged_out = client.delete("/api/v1/paper/sessions/current", headers=auth(token))
+
+        assert logged_out.status_code == 200
+        assert logged_out.json() == {"status": "revoked"}
+
+        summary = client.get("/api/v1/paper/summary", headers=auth(token))
+        assert summary.status_code == 401
+
+
 def test_paper_market_buy_fills_from_latest_snapshot_and_updates_portfolio():
     reset_database()
     seed_tradeable_stock(price=10.0)

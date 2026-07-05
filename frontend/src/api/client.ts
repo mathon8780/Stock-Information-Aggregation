@@ -71,6 +71,8 @@ export const api = {
   notifications: (status?: string) => request<Paged<NotificationItem>>(`/notifications?limit=100${status ? `&status=${status}` : ''}`),
   createPaperAccount: (payload: { owner_name: string; password: string }) => request<PaperAccount>('/paper/accounts', { method: 'POST', body: JSON.stringify(payload) }),
   loginPaperAccount: (payload: { owner_name: string; password: string }) => request<{ token: string; account: PaperAccount }>('/paper/sessions', { method: 'POST', body: JSON.stringify(payload) }),
+  logoutPaperAccount: (token: string) => request<{ status: string }>('/paper/sessions/current', { method: 'DELETE', headers: paperAuth(token) }),
+  paperAccount: (token: string) => request<PaperAccount>('/paper/account', { headers: paperAuth(token) }),
   paperSummary: (token: string) => request<PaperSummary>('/paper/summary', { headers: paperAuth(token) }),
   paperPerformanceSummary: (token: string) => request<PaperPerformanceSummary>('/paper/performance/summary', { headers: paperAuth(token) }),
   paperPerformanceByStock: (token: string) => request<Paged<PaperStockPerformance>>('/paper/performance/by-stock', { headers: paperAuth(token) }),

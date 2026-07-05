@@ -23,6 +23,7 @@ from app.services.news_auto_sync_service import trigger_news_simplification
 from app.services.news_llm_config_service import news_llm_config_dict, save_news_llm_config, validate_news_llm_config_status
 from app.services.paper_trading_service import (
     account_from_token,
+    account_dict,
     cancel_order,
     create_account,
     list_cash_flows,
@@ -37,6 +38,7 @@ from app.services.paper_trading_service import (
     portfolio_summary,
     record_risk_notification,
     reset_account,
+    revoke_session,
     run_matching,
 )
 from app.services.news_collector_service import NewsCollector
@@ -52,9 +54,13 @@ _missing_daily_kline_lock = Lock()
 
 
 def _paper_account(authorization: str | None = Header(None), db: Session = Depends(get_db)):
+    return account_from_token(db, _paper_token(authorization))
+
+
+def _paper_token(authorization: str | None = Header(None)) -> str:
     if not authorization or not authorization.lower().startswith("bearer "):
         raise HTTPException(status_code=401, detail="请先登录模拟交易账户")
-    return account_from_token(db, authorization.split(" ", 1)[1].strip())
+    return authorization.split(" ", 1)[1].strip()
 
 
 @router.get("/health")
@@ -174,6 +180,16 @@ def create_paper_account(request: PaperAccountRequest, db: Session = Depends(get
 @router.post("/paper/sessions")
 def create_paper_session(request: PaperLoginRequest, db: Session = Depends(get_db)) -> dict[str, Any]:
     return login_account(db, request.owner_name, request.password)
+
+
+@router.delete("/paper/sessions/current")
+def delete_paper_session(token: str = Depends(_paper_token), db: Session = Depends(get_db)) -> dict[str, str]:
+    return revoke_session(db, token)
+
+
+@router.get("/paper/account")
+def get_paper_account(account=Depends(_paper_account)) -> dict[str, Any]:
+    return account_dict(account)
 
 
 @router.get("/paper/summary")

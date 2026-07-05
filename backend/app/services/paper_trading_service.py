@@ -86,6 +86,15 @@ def account_from_token(db: Session, token: str) -> PaperAccount:
     return account
 
 
+def revoke_session(db: Session, token: str) -> dict[str, str]:
+    session = db.execute(select(PaperSession).where(PaperSession.token_hash == _hash_token(token))).scalar_one_or_none()
+    if session is None or session.revoked_at is not None or _session_expired(session):
+        raise HTTPException(status_code=401, detail="模拟交易登录已失效")
+    session.revoked_at = datetime.now(timezone.utc)
+    db.commit()
+    return {"status": "revoked"}
+
+
 def reset_account(db: Session, account: PaperAccount) -> dict[str, object]:
     for model in (PaperCashFlow, PaperTrade, PaperOrder, PaperPosition):
         db.query(model).filter(model.account_id == account.id).delete(synchronize_session=False)
