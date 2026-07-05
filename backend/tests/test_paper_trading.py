@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 
 from app.database import Base, SessionLocal, engine
 from app.main import app
-from app.models import MarketSnapshot, PaperPosition, Stock
+from app.models import MarketSnapshot, Notification, PaperPosition, Stock
 
 
 def reset_database() -> None:
@@ -167,6 +167,57 @@ def test_paper_order_rejects_invalid_lot_and_insufficient_cash():
         )
         assert insufficient.status_code == 400
         assert "资金不足" in insufficient.json()["detail"]
+
+
+def test_paper_trade_order_and_risk_notifications_are_recorded():
+    reset_database()
+    seed_tradeable_stock(price=10.0)
+
+    with TestClient(app) as client:
+        token = create_and_login(client)
+        bought = client.post(
+            "/api/v1/paper/orders",
+            headers=auth(token),
+            json={"code": "300308.SZ", "side": "buy", "order_type": "market", "quantity": 100},
+        )
+        assert bought.status_code == 200
+
+        pending = client.post(
+            "/api/v1/paper/orders",
+            headers=auth(token),
+            json={"code": "300308.SZ", "side": "buy", "order_type": "limit", "quantity": 100, "limit_price": 9.0},
+        )
+        assert pending.status_code == 200
+
+        cancelled = client.post(f"/api/v1/paper/orders/{pending.json()['id']}/cancel", headers=auth(token))
+        assert cancelled.status_code == 200
+
+        rejected = client.post(
+            "/api/v1/paper/orders",
+            headers=auth(token),
+            json={"code": "300308.SZ", "side": "buy", "order_type": "market", "quantity": 50},
+        )
+        assert rejected.status_code == 400
+
+    with SessionLocal() as db:
+        notifications = db.query(Notification).order_by(Notification.id).all()
+        by_type = {row.notification_type: [] for row in notifications}
+        for row in notifications:
+            by_type[row.notification_type].append(row)
+
+    assert len(by_type["paper_trade"]) == 1
+    assert by_type["paper_trade"][0].payload["code"] == "300308.SZ"
+    assert by_type["paper_trade"][0].payload["status"] == "filled"
+    assert by_type["paper_trade"][0].payload["quantity"] == 100
+
+    assert [row.payload["status"] for row in by_type["paper_order"]] == ["pending", "cancelled"]
+    assert by_type["paper_order"][0].payload["order_type"] == "limit"
+    assert by_type["paper_order"][1].payload["order_id"] == pending.json()["id"]
+
+    assert len(by_type["paper_risk"]) == 1
+    assert by_type["paper_risk"][0].payload["code"] == "300308.SZ"
+    assert by_type["paper_risk"][0].payload["order_type"] == "market"
+    assert "100" in by_type["paper_risk"][0].content
 
 
 def test_limit_buy_pending_freezes_cash_and_cancel_releases_it():

@@ -32,6 +32,7 @@ from app.services.paper_trading_service import (
     login_account,
     place_order,
     portfolio_summary,
+    record_risk_notification,
     reset_account,
     run_matching,
 )
@@ -191,7 +192,12 @@ def get_paper_positions(account=Depends(_paper_account), db: Session = Depends(g
 
 @router.post("/paper/orders")
 def create_paper_order(request: PaperOrderRequest, account=Depends(_paper_account), db: Session = Depends(get_db)) -> dict[str, Any]:
-    order = place_order(db, account, request.code, request.side, request.order_type, request.quantity, request.limit_price, request.trigger_price)
+    try:
+        order = place_order(db, account, request.code, request.side, request.order_type, request.quantity, request.limit_price, request.trigger_price)
+    except HTTPException as exc:
+        db.rollback()
+        record_risk_notification(db, account, request.code, request.side, request.order_type, request.quantity, str(exc.detail))
+        raise
     publish_event("paper_trade.filled" if order["status"] == "filled" else "paper_order.updated", {"order_id": order["id"], "code": order["code"], "status": order["status"]})
     return order
 

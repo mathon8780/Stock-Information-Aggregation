@@ -24,6 +24,7 @@ from app.models import (
     WatchSnapshot,
 )
 from app.services.ingest_service import normalize_code
+from app.services.notification_service import create_notification
 
 
 INITIAL_CASH = Decimal("500000.0000")
@@ -229,9 +230,37 @@ def cancel_order(db: Session, account: PaperAccount, order_id: int) -> dict[str,
 
     order.status = "cancelled"
     order.cancelled_at = datetime.now(timezone.utc)
+    _notify_order_update(db, account, order, stock, "委托已撤销")
     db.commit()
     db.refresh(order)
     return order_dict(order, stock)
+
+
+def record_risk_notification(
+    db: Session,
+    account: PaperAccount,
+    code: str,
+    side: str,
+    order_type: str,
+    quantity: int,
+    reason: str,
+) -> None:
+    create_notification(
+        db,
+        "paper_risk",
+        "模拟交易风控拒单",
+        f"{account.owner_name} 的模拟交易委托被拒绝：{code} {side} {order_type} {quantity} 股。原因：{reason}",
+        {
+            "account_id": account.id,
+            "owner_name": account.owner_name,
+            "code": code,
+            "side": side,
+            "order_type": order_type,
+            "quantity": quantity,
+            "reason": reason,
+        },
+    )
+    db.commit()
 
 
 def run_matching(db: Session, account: PaperAccount) -> dict[str, int]:
@@ -314,6 +343,7 @@ def _place_limit_order(
         db.add(order)
         db.flush()
         _add_cash_flow(db, account, order.id, None, "freeze", -frozen_cash, "买入限价单冻结资金")
+        _notify_order_update(db, account, order, stock, "买入限价单待成交")
         return order
 
     position = _position_for_update(db, account.id, stock.id)
@@ -333,6 +363,7 @@ def _place_limit_order(
     )
     db.add(order)
     db.flush()
+    _notify_order_update(db, account, order, stock, "卖出限价单待成交")
     return order
 
 
@@ -361,6 +392,7 @@ def _place_condition_order(
     )
     db.add(order)
     db.flush()
+    _notify_order_update(db, account, order, stock, "条件单监控中")
     return order
 
 
@@ -416,6 +448,7 @@ def _fill_existing_buy(db: Session, account: PaperAccount, order: PaperOrder, st
     position.avg_cost = _money4(position.cost_amount / position.total_quantity)
     _add_cash_flow(db, account, order.id, trade.id, "buy_cost", -amount, "委托撮合买入成交")
     _add_cash_flow(db, account, order.id, trade.id, "fee", -fees["fee_total"], "买入手续费")
+    _notify_trade_filled(db, account, order, trade, stock)
 
 
 def _fill_existing_sell(db: Session, account: PaperAccount, order: PaperOrder, stock: Stock, latest: PaperPrice, amount: Decimal, fees: dict[str, Decimal]) -> None:
@@ -443,6 +476,7 @@ def _fill_existing_sell(db: Session, account: PaperAccount, order: PaperOrder, s
     position.avg_cost = _money4(position.cost_amount / position.total_quantity) if position.total_quantity else Decimal("0.0000")
     _add_cash_flow(db, account, order.id, trade.id, "sell_income", amount, "委托撮合卖出成交")
     _add_cash_flow(db, account, order.id, trade.id, "fee", -fees["fee_total"], "卖出手续费")
+    _notify_trade_filled(db, account, order, trade, stock)
 
 
 def account_dict(account: PaperAccount) -> dict[str, object]:
@@ -558,6 +592,7 @@ def _fill_market_buy(
     position.avg_cost = _money4(position.cost_amount / position.total_quantity)
     _add_cash_flow(db, account, order.id, trade.id, "buy_cost", -amount, "市价买入成交")
     _add_cash_flow(db, account, order.id, trade.id, "fee", -fees["fee_total"], "买入手续费")
+    _notify_trade_filled(db, account, order, trade, stock)
 
 
 def _fill_market_sell(
@@ -602,6 +637,7 @@ def _fill_market_sell(
     position.avg_cost = _money4(position.cost_amount / position.total_quantity) if position.total_quantity else Decimal("0.0000")
     _add_cash_flow(db, account, order.id, trade.id, "sell_income", amount, "市价卖出成交")
     _add_cash_flow(db, account, order.id, trade.id, "fee", -fees["fee_total"], "卖出手续费")
+    _notify_trade_filled(db, account, order, trade, stock)
 
 
 def _create_trade(
@@ -647,6 +683,55 @@ def _add_cash_flow(db: Session, account: PaperAccount, order_id: int, trade_id: 
             cash_balance_after=account.cash_balance,
             remark=remark,
         )
+    )
+
+
+def _notify_order_update(db: Session, account: PaperAccount, order: PaperOrder, stock: Stock, action: str) -> None:
+    create_notification(
+        db,
+        "paper_order",
+        f"模拟交易委托：{stock.name}",
+        f"{action}：{stock.code} {order.side} {order.order_type} {order.quantity} 股，状态 {order.status}。",
+        {
+            "account_id": account.id,
+            "owner_name": account.owner_name,
+            "order_id": order.id,
+            "stock_id": stock.id,
+            "code": stock.code,
+            "name": stock.name,
+            "side": order.side,
+            "order_type": order.order_type,
+            "status": order.status,
+            "quantity": order.quantity,
+            "limit_price": _optional_decimal(order.limit_price),
+            "trigger_price": _optional_decimal(order.trigger_price),
+        },
+    )
+
+
+def _notify_trade_filled(db: Session, account: PaperAccount, order: PaperOrder, trade: PaperTrade, stock: Stock) -> None:
+    create_notification(
+        db,
+        "paper_trade",
+        f"模拟交易成交：{stock.name}",
+        f"{stock.code} {trade.side} {trade.quantity} 股，成交价 {_decimal(trade.price):.2f}，成交金额 {_decimal(trade.amount):.2f}。",
+        {
+            "account_id": account.id,
+            "owner_name": account.owner_name,
+            "order_id": order.id,
+            "trade_id": trade.id,
+            "stock_id": stock.id,
+            "code": stock.code,
+            "name": stock.name,
+            "side": trade.side,
+            "order_type": order.order_type,
+            "status": order.status,
+            "quantity": trade.quantity,
+            "price": _decimal(trade.price),
+            "amount": _decimal(trade.amount),
+            "fee_total": _decimal(trade.fee_total),
+            "realized_pnl": _optional_decimal(trade.realized_pnl),
+        },
     )
 
 
