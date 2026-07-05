@@ -170,13 +170,20 @@ def place_order(
 ) -> dict[str, object]:
     if quantity < 100 or quantity % 100 != 0:
         raise HTTPException(status_code=400, detail="A 股模拟交易数量必须为 100 股整数倍")
-    if order_type != "market":
-        raise HTTPException(status_code=400, detail="首版仅启用市价单，限价和条件单将在委托撮合阶段开放")
+    if order_type not in {"market", "limit"}:
+        raise HTTPException(status_code=400, detail="止盈/止损条件单将在条件单阶段开放")
+    if order_type == "limit" and limit_price is None:
+        raise HTTPException(status_code=400, detail="限价单必须填写限价")
 
     stock = db.execute(select(Stock).where(Stock.code == normalize_code(code), Stock.security_type == "stock")).scalar_one_or_none()
     if stock is None:
         raise HTTPException(status_code=404, detail="交易标的不存在")
     latest = _latest_price(db, stock.id)
+    if order_type == "limit":
+        order = _place_limit_order(db, account, stock, side, quantity, Decimal(str(limit_price)), latest)
+        db.commit()
+        db.refresh(order)
+        return order_dict(order, stock)
     amount = _money(latest.price * quantity)
     fees = calculate_fees(amount, side)
     fee_total = fees["fee_total"]
@@ -190,6 +197,36 @@ def place_order(
     return order_dict(order, stock) | {"fee_total": _decimal(fee_total)}
 
 
+def cancel_order(db: Session, account: PaperAccount, order_id: int) -> dict[str, object]:
+    row = db.execute(
+        select(PaperOrder, Stock)
+        .join(Stock, PaperOrder.stock_id == Stock.id)
+        .where(PaperOrder.id == order_id, PaperOrder.account_id == account.id)
+    ).one_or_none()
+    if row is None:
+        raise HTTPException(status_code=404, detail="委托不存在")
+    order, stock = row
+    if order.status not in {"pending", "monitoring", "partially_filled"}:
+        raise HTTPException(status_code=400, detail="当前委托状态不可撤销")
+
+    if order.side == "buy" and order.frozen_cash > 0:
+        account.cash_available += order.frozen_cash
+        account.cash_frozen -= order.frozen_cash
+        _add_cash_flow(db, account, order.id, None, "unfreeze", order.frozen_cash, "撤销买入限价单释放冻结资金")
+        order.frozen_cash = Decimal("0.0000")
+    if order.side == "sell" and order.frozen_quantity > 0:
+        position = _position_for_update(db, account.id, order.stock_id)
+        position.available_quantity += order.frozen_quantity
+        position.frozen_quantity -= order.frozen_quantity
+        order.frozen_quantity = 0
+
+    order.status = "cancelled"
+    order.cancelled_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(order)
+    return order_dict(order, stock)
+
+
 def calculate_fees(amount: Decimal, side: str) -> dict[str, Decimal]:
     commission = _money(amount * COMMISSION_RATE)
     transfer_fee = _money(amount * TRANSFER_FEE_RATE)
@@ -201,6 +238,69 @@ def calculate_fees(amount: Decimal, side: str) -> dict[str, Decimal]:
         "stamp_tax": stamp_tax,
         "fee_total": fee_total,
     }
+
+
+def _place_limit_order(
+    db: Session,
+    account: PaperAccount,
+    stock: Stock,
+    side: str,
+    quantity: int,
+    limit_price: Decimal,
+    latest: PaperPrice,
+) -> PaperOrder:
+    limit_price = _money4(limit_price)
+    crosses = latest.price <= limit_price if side == "buy" else latest.price >= limit_price
+    if crosses:
+        amount = _money(latest.price * quantity)
+        fees = calculate_fees(amount, side)
+        if side == "buy":
+            _fill_market_buy(db, account, stock, quantity, latest, amount, fees, order_type="limit", limit_price=limit_price)
+        else:
+            _fill_market_sell(db, account, stock, quantity, latest, amount, fees, order_type="limit", limit_price=limit_price)
+        return db.execute(select(PaperOrder).where(PaperOrder.account_id == account.id).order_by(desc(PaperOrder.id)).limit(1)).scalar_one()
+
+    if side == "buy":
+        freeze_amount = _money(limit_price * quantity)
+        fees = calculate_fees(freeze_amount, "buy")
+        frozen_cash = freeze_amount + fees["fee_total"]
+        if account.cash_available < frozen_cash:
+            raise HTTPException(status_code=400, detail="可用资金不足")
+        account.cash_available -= frozen_cash
+        account.cash_frozen += frozen_cash
+        order = PaperOrder(
+            account_id=account.id,
+            stock_id=stock.id,
+            side="buy",
+            order_type="limit",
+            status="pending",
+            quantity=quantity,
+            limit_price=limit_price,
+            frozen_cash=frozen_cash,
+        )
+        db.add(order)
+        db.flush()
+        _add_cash_flow(db, account, order.id, None, "freeze", -frozen_cash, "买入限价单冻结资金")
+        return order
+
+    position = _position_for_update(db, account.id, stock.id)
+    if position.available_quantity < quantity:
+        raise HTTPException(status_code=400, detail="可卖持仓不足，T+1 当日买入数量不可卖出")
+    position.available_quantity -= quantity
+    position.frozen_quantity += quantity
+    order = PaperOrder(
+        account_id=account.id,
+        stock_id=stock.id,
+        side="sell",
+        order_type="limit",
+        status="pending",
+        quantity=quantity,
+        limit_price=limit_price,
+        frozen_quantity=quantity,
+    )
+    db.add(order)
+    db.flush()
+    return order
 
 
 def account_dict(account: PaperAccount) -> dict[str, object]:
@@ -276,7 +376,17 @@ def cash_flow_dict(flow: PaperCashFlow) -> dict[str, object]:
     }
 
 
-def _fill_market_buy(db: Session, account: PaperAccount, stock: Stock, quantity: int, latest: PaperPrice, amount: Decimal, fees: dict[str, Decimal]) -> None:
+def _fill_market_buy(
+    db: Session,
+    account: PaperAccount,
+    stock: Stock,
+    quantity: int,
+    latest: PaperPrice,
+    amount: Decimal,
+    fees: dict[str, Decimal],
+    order_type: str = "market",
+    limit_price: Decimal | None = None,
+) -> None:
     required = amount + fees["fee_total"]
     if account.cash_available < required:
         raise HTTPException(status_code=400, detail="可用资金不足")
@@ -287,10 +397,11 @@ def _fill_market_buy(db: Session, account: PaperAccount, stock: Stock, quantity:
         account_id=account.id,
         stock_id=stock.id,
         side="buy",
-        order_type="market",
+        order_type=order_type,
         status="filled",
         quantity=quantity,
         filled_quantity=quantity,
+        limit_price=limit_price,
         avg_fill_price=latest.price,
         fee_total=fees["fee_total"],
         filled_at=now,
@@ -307,7 +418,17 @@ def _fill_market_buy(db: Session, account: PaperAccount, stock: Stock, quantity:
     _add_cash_flow(db, account, order.id, trade.id, "fee", -fees["fee_total"], "买入手续费")
 
 
-def _fill_market_sell(db: Session, account: PaperAccount, stock: Stock, quantity: int, latest: PaperPrice, amount: Decimal, fees: dict[str, Decimal]) -> None:
+def _fill_market_sell(
+    db: Session,
+    account: PaperAccount,
+    stock: Stock,
+    quantity: int,
+    latest: PaperPrice,
+    amount: Decimal,
+    fees: dict[str, Decimal],
+    order_type: str = "market",
+    limit_price: Decimal | None = None,
+) -> None:
     position = _position_for_update(db, account.id, stock.id)
     if position.available_quantity < quantity:
         raise HTTPException(status_code=400, detail="可卖持仓不足，T+1 当日买入数量不可卖出")
@@ -320,10 +441,11 @@ def _fill_market_sell(db: Session, account: PaperAccount, stock: Stock, quantity
         account_id=account.id,
         stock_id=stock.id,
         side="sell",
-        order_type="market",
+        order_type=order_type,
         status="filled",
         quantity=quantity,
         filled_quantity=quantity,
+        limit_price=limit_price,
         avg_fill_price=latest.price,
         fee_total=fees["fee_total"],
         filled_at=now,
@@ -372,7 +494,7 @@ def _create_trade(
     return trade
 
 
-def _add_cash_flow(db: Session, account: PaperAccount, order_id: int, trade_id: int, flow_type: str, amount: Decimal, remark: str) -> None:
+def _add_cash_flow(db: Session, account: PaperAccount, order_id: int, trade_id: int | None, flow_type: str, amount: Decimal, remark: str) -> None:
     db.add(
         PaperCashFlow(
             account_id=account.id,

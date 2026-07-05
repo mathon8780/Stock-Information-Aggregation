@@ -77,6 +77,7 @@ export const api = {
   paperOrders: (token: string) => request<Paged<PaperOrder>>('/paper/orders', { headers: paperAuth(token) }),
   createPaperOrder: (token: string, payload: { code: string; side: 'buy' | 'sell'; order_type: string; quantity: number; limit_price?: number | null; trigger_price?: number | null }) =>
     request<PaperOrder>('/paper/orders', { method: 'POST', headers: paperAuth(token), body: JSON.stringify(payload) }),
+  cancelPaperOrder: (token: string, orderId: number) => request<PaperOrder>(`/paper/orders/${orderId}/cancel`, { method: 'POST', headers: paperAuth(token) }),
   paperTrades: (token: string) => request<Paged<PaperTrade>>('/paper/trades', { headers: paperAuth(token) }),
   paperCashFlows: (token: string) => request<Paged<PaperCashFlow>>('/paper/cash-flows', { headers: paperAuth(token) }),
 };

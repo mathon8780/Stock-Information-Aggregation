@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 
 from app.database import Base, SessionLocal, engine
 from app.main import app
-from app.models import MarketSnapshot, Stock
+from app.models import MarketSnapshot, PaperPosition, Stock
 
 
 def reset_database() -> None:
@@ -149,3 +149,107 @@ def test_paper_order_rejects_invalid_lot_and_insufficient_cash():
         )
         assert insufficient.status_code == 400
         assert "资金不足" in insufficient.json()["detail"]
+
+
+def test_limit_buy_pending_freezes_cash_and_cancel_releases_it():
+    reset_database()
+    seed_tradeable_stock(price=10.0)
+
+    with TestClient(app) as client:
+        token = create_and_login(client)
+        order = client.post(
+            "/api/v1/paper/orders",
+            headers=auth(token),
+            json={"code": "300308.SZ", "side": "buy", "order_type": "limit", "quantity": 100, "limit_price": 9.0},
+        )
+
+        assert order.status_code == 200
+        body = order.json()
+        assert body["status"] == "pending"
+        assert body["filled_quantity"] == 0
+        assert body["limit_price"] == 9.0
+        assert body["frozen_cash"] == 900.24
+
+        summary = client.get("/api/v1/paper/summary", headers=auth(token)).json()
+        assert summary["cash_balance"] == 500000.0
+        assert summary["cash_available"] == 499099.76
+        assert summary["cash_frozen"] == 900.24
+        assert summary["open_order_count"] == 1
+
+        cancelled = client.post(f"/api/v1/paper/orders/{body['id']}/cancel", headers=auth(token))
+        assert cancelled.status_code == 200
+        assert cancelled.json()["status"] == "cancelled"
+        assert cancelled.json()["frozen_cash"] == 0.0
+
+        released = client.get("/api/v1/paper/summary", headers=auth(token)).json()
+        assert released["cash_available"] == 500000.0
+        assert released["cash_frozen"] == 0.0
+        assert released["open_order_count"] == 0
+
+
+def test_limit_sell_pending_freezes_position_and_cancel_releases_it():
+    reset_database()
+    seed_tradeable_stock(price=10.0)
+
+    with TestClient(app) as client:
+        token = create_and_login(client)
+        bought = client.post(
+            "/api/v1/paper/orders",
+            headers=auth(token),
+            json={"code": "300308.SZ", "side": "buy", "order_type": "market", "quantity": 100},
+        )
+        assert bought.status_code == 200
+
+        with SessionLocal() as db:
+            position = db.query(PaperPosition).one()
+            position.available_quantity = 100
+            position.today_buy_quantity = 0
+            db.commit()
+
+        order = client.post(
+            "/api/v1/paper/orders",
+            headers=auth(token),
+            json={"code": "300308.SZ", "side": "sell", "order_type": "limit", "quantity": 100, "limit_price": 11.0},
+        )
+
+        assert order.status_code == 200
+        body = order.json()
+        assert body["status"] == "pending"
+        assert body["filled_quantity"] == 0
+        assert body["frozen_quantity"] == 100
+
+        position_after_order = client.get("/api/v1/paper/positions", headers=auth(token)).json()["items"][0]
+        assert position_after_order["available_quantity"] == 0
+        assert position_after_order["frozen_quantity"] == 100
+
+        cancelled = client.post(f"/api/v1/paper/orders/{body['id']}/cancel", headers=auth(token))
+        assert cancelled.status_code == 200
+        assert cancelled.json()["status"] == "cancelled"
+        assert cancelled.json()["frozen_quantity"] == 0
+
+        position_after_cancel = client.get("/api/v1/paper/positions", headers=auth(token)).json()["items"][0]
+        assert position_after_cancel["available_quantity"] == 100
+        assert position_after_cancel["frozen_quantity"] == 0
+
+
+def test_same_day_market_sell_is_blocked_by_t1_rule():
+    reset_database()
+    seed_tradeable_stock(price=10.0)
+
+    with TestClient(app) as client:
+        token = create_and_login(client)
+        bought = client.post(
+            "/api/v1/paper/orders",
+            headers=auth(token),
+            json={"code": "300308.SZ", "side": "buy", "order_type": "market", "quantity": 100},
+        )
+        assert bought.status_code == 200
+
+        sold = client.post(
+            "/api/v1/paper/orders",
+            headers=auth(token),
+            json={"code": "300308.SZ", "side": "sell", "order_type": "market", "quantity": 100},
+        )
+
+        assert sold.status_code == 400
+        assert "T+1" in sold.json()["detail"]

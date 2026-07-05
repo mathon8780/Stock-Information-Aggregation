@@ -23,6 +23,7 @@ from app.services.news_auto_sync_service import trigger_news_simplification
 from app.services.news_llm_config_service import news_llm_config_dict, save_news_llm_config, validate_news_llm_config_status
 from app.services.paper_trading_service import (
     account_from_token,
+    cancel_order,
     create_account,
     list_cash_flows,
     list_orders,
@@ -197,6 +198,13 @@ def create_paper_order(request: PaperOrderRequest, account=Depends(_paper_accoun
 @router.get("/paper/orders")
 def get_paper_orders(account=Depends(_paper_account), db: Session = Depends(get_db)) -> dict[str, Any]:
     return list_orders(db, account)
+
+
+@router.post("/paper/orders/{order_id}/cancel")
+def cancel_paper_order(order_id: int, account=Depends(_paper_account), db: Session = Depends(get_db)) -> dict[str, Any]:
+    order = cancel_order(db, account, order_id)
+    publish_event("paper_order.updated", {"order_id": order["id"], "code": order["code"], "status": order["status"]})
+    return order
 
 
 @router.get("/paper/trades")
