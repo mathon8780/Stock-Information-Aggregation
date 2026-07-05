@@ -1,8 +1,8 @@
-import { CloudDownloadOutlined, PlayCircleOutlined, ReloadOutlined, StarFilled, StarOutlined } from '@ant-design/icons';
+import { CloudDownloadOutlined, PlayCircleOutlined, ReloadOutlined, ShoppingCartOutlined, StarFilled, StarOutlined } from '@ant-design/icons';
 import { Button, Card, Col, Row, Segmented, Space, Spin, Typography, message } from 'antd';
 import ReactECharts from 'echarts-for-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 import { api, formatTime } from '../api/client';
 import PageHeader from '../components/PageHeader';
 import RiskNotice from '../components/RiskNotice';
@@ -168,6 +168,9 @@ export default function StockDetail() {
         extra={(
           <>
             <Button icon={stock.is_watched ? <StarFilled /> : <StarOutlined />} onClick={toggleWatch}>{stock.is_watched ? '取消关注' : '加入关注'}</Button>
+            <Link to={`/paper-trading?code=${encodeURIComponent(stock.code)}`}>
+              <Button icon={<ShoppingCartOutlined />}>模拟交易</Button>
+            </Link>
             <Button icon={<PlayCircleOutlined />} type="primary" onClick={analyze}>触发分析</Button>
             <Button icon={<CloudDownloadOutlined />} loading={dailyKlineRefreshing} onClick={completeDailyKline}>补全近一年日 K</Button>
             <Button icon={<ReloadOutlined />} loading={intradayRefreshing} disabled={!stock.is_watched} onClick={() => refreshIntraday(true)}>更新分钟 K</Button>

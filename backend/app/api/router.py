@@ -7,7 +7,7 @@ from decimal import Decimal
 from threading import Lock
 from typing import Any
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy import and_, desc, func, or_, select
 from sqlalchemy.orm import Session
@@ -15,12 +15,24 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.database import SessionLocal, get_db
 from app.models import CollectionJob, KlineDaily, KlineIntraday, MarketSnapshot, News, Notification, Stock, TradingAdvice, WatchSnapshot, Watchlist
-from app.schemas import AddWatchRequest, NewsLlmConfigRequest, UpdateWatchRequest
+from app.schemas import AddWatchRequest, NewsLlmConfigRequest, PaperAccountRequest, PaperLoginRequest, PaperOrderRequest, UpdateWatchRequest
 from app.services.analysis_service import DISCLAIMER, analyze_stock, analyze_watchlist
 from app.services.event_bus import publish_event, subscribe, unsubscribe
 from app.services.ingest_service import normalize_code, record_collection_job
 from app.services.news_auto_sync_service import trigger_news_simplification
 from app.services.news_llm_config_service import news_llm_config_dict, save_news_llm_config, validate_news_llm_config_status
+from app.services.paper_trading_service import (
+    account_from_token,
+    create_account,
+    list_cash_flows,
+    list_orders,
+    list_positions,
+    list_trades,
+    login_account,
+    place_order,
+    portfolio_summary,
+    reset_account,
+)
 from app.services.news_collector_service import NewsCollector
 from app.services.real_collector_service import AkshareCollector, DEFAULT_WATCHLIST
 from app.services.serializers import advice_dict, intraday_kline_dict, job_dict, kline_dict, news_dict, notification_dict, snapshot_dict, stock_dict, watchlist_dict
@@ -31,6 +43,12 @@ from app.services.watch_stock_sync_service import enqueue_watch_stock_sync, run_
 router = APIRouter(prefix="/api/v1")
 _full_market_history_lock = Lock()
 _missing_daily_kline_lock = Lock()
+
+
+def _paper_account(authorization: str | None = Header(None), db: Session = Depends(get_db)):
+    if not authorization or not authorization.lower().startswith("bearer "):
+        raise HTTPException(status_code=401, detail="请先登录模拟交易账户")
+    return account_from_token(db, authorization.split(" ", 1)[1].strip())
 
 
 @router.get("/health")
@@ -140,6 +158,55 @@ def update_news_llm_config(request: NewsLlmConfigRequest, db: Session = Depends(
 @router.post("/news-llm-config/validate")
 def validate_news_llm_config(db: Session = Depends(get_db)) -> dict[str, Any]:
     return validate_news_llm_config_status(db)
+
+
+@router.post("/paper/accounts")
+def create_paper_account(request: PaperAccountRequest, db: Session = Depends(get_db)) -> dict[str, Any]:
+    return create_account(db, request.owner_name, request.password)
+
+
+@router.post("/paper/sessions")
+def create_paper_session(request: PaperLoginRequest, db: Session = Depends(get_db)) -> dict[str, Any]:
+    return login_account(db, request.owner_name, request.password)
+
+
+@router.get("/paper/summary")
+def get_paper_summary(account=Depends(_paper_account), db: Session = Depends(get_db)) -> dict[str, Any]:
+    return portfolio_summary(db, account)
+
+
+@router.post("/paper/account/reset")
+def reset_paper_account(account=Depends(_paper_account), db: Session = Depends(get_db)) -> dict[str, Any]:
+    summary = reset_account(db, account)
+    publish_event("paper_account.reset", {"account_id": account.id})
+    return summary
+
+
+@router.get("/paper/positions")
+def get_paper_positions(account=Depends(_paper_account), db: Session = Depends(get_db)) -> dict[str, Any]:
+    return list_positions(db, account)
+
+
+@router.post("/paper/orders")
+def create_paper_order(request: PaperOrderRequest, account=Depends(_paper_account), db: Session = Depends(get_db)) -> dict[str, Any]:
+    order = place_order(db, account, request.code, request.side, request.order_type, request.quantity, request.limit_price, request.trigger_price)
+    publish_event("paper_trade.filled" if order["status"] == "filled" else "paper_order.updated", {"order_id": order["id"], "code": order["code"], "status": order["status"]})
+    return order
+
+
+@router.get("/paper/orders")
+def get_paper_orders(account=Depends(_paper_account), db: Session = Depends(get_db)) -> dict[str, Any]:
+    return list_orders(db, account)
+
+
+@router.get("/paper/trades")
+def get_paper_trades(account=Depends(_paper_account), db: Session = Depends(get_db)) -> dict[str, Any]:
+    return list_trades(db, account)
+
+
+@router.get("/paper/cash-flows")
+def get_paper_cash_flows(account=Depends(_paper_account), db: Session = Depends(get_db)) -> dict[str, Any]:
+    return list_cash_flows(db, account)
 
 
 @router.get("/stocks")

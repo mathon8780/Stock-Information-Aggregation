@@ -25,3 +25,22 @@ class NewsLlmConfigRequest(BaseModel):
     clear_api_key: bool = False
     prompt_preset: str = Field("default", min_length=1, max_length=64)
     custom_prompt: str | None = None
+
+
+class PaperAccountRequest(BaseModel):
+    owner_name: str = Field(..., min_length=2, max_length=64)
+    password: str = Field(..., min_length=6, max_length=128)
+
+
+class PaperLoginRequest(BaseModel):
+    owner_name: str = Field(..., min_length=2, max_length=64)
+    password: str = Field(..., min_length=6, max_length=128)
+
+
+class PaperOrderRequest(BaseModel):
+    code: str = Field(..., min_length=1, max_length=32)
+    side: str = Field(..., pattern="^(buy|sell)$")
+    order_type: str = Field("market", pattern="^(market|limit|take_profit|stop_loss)$")
+    quantity: int = Field(..., gt=0)
+    limit_price: float | None = Field(None, gt=0)
+    trigger_price: float | None = Field(None, gt=0)

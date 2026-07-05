@@ -245,3 +245,114 @@ class Notification(Base):
     error_message: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True, nullable=False)
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class PaperAccount(Base):
+    __tablename__ = "paper_accounts"
+    __table_args__ = (
+        UniqueConstraint("owner_name", name="uq_paper_accounts_owner_name"),
+        CheckConstraint("cash_balance >= 0", name="ck_paper_accounts_cash_balance"),
+        CheckConstraint("cash_available >= 0", name="ck_paper_accounts_cash_available"),
+        CheckConstraint("cash_frozen >= 0", name="ck_paper_accounts_cash_frozen"),
+    )
+
+    id: Mapped[int] = mapped_column(PK_TYPE, primary_key=True, autoincrement=True)
+    owner_name: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, index=True)
+    password_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    initial_cash: Mapped[Decimal] = mapped_column(Numeric(18, 4), default=Decimal("500000.0000"), nullable=False)
+    cash_balance: Mapped[Decimal] = mapped_column(Numeric(18, 4), default=Decimal("500000.0000"), nullable=False)
+    cash_available: Mapped[Decimal] = mapped_column(Numeric(18, 4), default=Decimal("500000.0000"), nullable=False)
+    cash_frozen: Mapped[Decimal] = mapped_column(Numeric(18, 4), default=Decimal("0.0000"), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), default="active", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
+    last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    reset_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class PaperSession(Base):
+    __tablename__ = "paper_sessions"
+    __table_args__ = (UniqueConstraint("token_hash", name="uq_paper_sessions_token_hash"),)
+
+    id: Mapped[int] = mapped_column(PK_TYPE, primary_key=True, autoincrement=True)
+    account_id: Mapped[int] = mapped_column(ForeignKey("paper_accounts.id"), index=True, nullable=False)
+    token_hash: Mapped[str] = mapped_column(String(128), nullable=False, unique=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class PaperOrder(Base):
+    __tablename__ = "paper_orders"
+
+    id: Mapped[int] = mapped_column(PK_TYPE, primary_key=True, autoincrement=True)
+    account_id: Mapped[int] = mapped_column(ForeignKey("paper_accounts.id"), index=True, nullable=False)
+    stock_id: Mapped[int] = mapped_column(ForeignKey("stocks.id"), index=True, nullable=False)
+    side: Mapped[str] = mapped_column(String(8), nullable=False)
+    order_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), index=True, nullable=False)
+    quantity: Mapped[int] = mapped_column(Integer, nullable=False)
+    filled_quantity: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    limit_price: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))
+    trigger_price: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))
+    avg_fill_price: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))
+    frozen_cash: Mapped[Decimal] = mapped_column(Numeric(18, 4), default=Decimal("0.0000"), nullable=False)
+    frozen_quantity: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    fee_total: Mapped[Decimal] = mapped_column(Numeric(18, 4), default=Decimal("0.0000"), nullable=False)
+    reject_reason: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
+    triggered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    filled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class PaperTrade(Base):
+    __tablename__ = "paper_trades"
+
+    id: Mapped[int] = mapped_column(PK_TYPE, primary_key=True, autoincrement=True)
+    account_id: Mapped[int] = mapped_column(ForeignKey("paper_accounts.id"), index=True, nullable=False)
+    order_id: Mapped[int] = mapped_column(ForeignKey("paper_orders.id"), index=True, nullable=False)
+    stock_id: Mapped[int] = mapped_column(ForeignKey("stocks.id"), index=True, nullable=False)
+    side: Mapped[str] = mapped_column(String(8), nullable=False)
+    quantity: Mapped[int] = mapped_column(Integer, nullable=False)
+    price: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False)
+    amount: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False)
+    commission: Mapped[Decimal] = mapped_column(Numeric(18, 4), default=Decimal("0.0000"), nullable=False)
+    stamp_tax: Mapped[Decimal] = mapped_column(Numeric(18, 4), default=Decimal("0.0000"), nullable=False)
+    transfer_fee: Mapped[Decimal] = mapped_column(Numeric(18, 4), default=Decimal("0.0000"), nullable=False)
+    fee_total: Mapped[Decimal] = mapped_column(Numeric(18, 4), default=Decimal("0.0000"), nullable=False)
+    realized_pnl: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))
+    trade_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    price_source: Mapped[str] = mapped_column(String(32), nullable=False)
+
+
+class PaperPosition(Base):
+    __tablename__ = "paper_positions"
+    __table_args__ = (UniqueConstraint("account_id", "stock_id", name="uq_paper_positions_account_stock"),)
+
+    id: Mapped[int] = mapped_column(PK_TYPE, primary_key=True, autoincrement=True)
+    account_id: Mapped[int] = mapped_column(ForeignKey("paper_accounts.id"), index=True, nullable=False)
+    stock_id: Mapped[int] = mapped_column(ForeignKey("stocks.id"), index=True, nullable=False)
+    total_quantity: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    available_quantity: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    today_buy_quantity: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    frozen_quantity: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    avg_cost: Mapped[Decimal] = mapped_column(Numeric(18, 4), default=Decimal("0.0000"), nullable=False)
+    cost_amount: Mapped[Decimal] = mapped_column(Numeric(18, 4), default=Decimal("0.0000"), nullable=False)
+    realized_pnl: Mapped[Decimal] = mapped_column(Numeric(18, 4), default=Decimal("0.0000"), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
+
+
+class PaperCashFlow(Base):
+    __tablename__ = "paper_cash_flows"
+
+    id: Mapped[int] = mapped_column(PK_TYPE, primary_key=True, autoincrement=True)
+    account_id: Mapped[int] = mapped_column(ForeignKey("paper_accounts.id"), index=True, nullable=False)
+    order_id: Mapped[int | None] = mapped_column(ForeignKey("paper_orders.id"))
+    trade_id: Mapped[int | None] = mapped_column(ForeignKey("paper_trades.id"))
+    flow_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    amount: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False)
+    cash_balance_after: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False)
+    remark: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)

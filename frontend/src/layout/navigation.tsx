@@ -4,6 +4,7 @@ import {
   BellOutlined,
   DashboardOutlined,
   FileTextOutlined,
+  FundProjectionScreenOutlined,
   SettingOutlined,
 } from '@ant-design/icons';
 import type { MenuProps } from 'antd';
@@ -14,6 +15,7 @@ export const menuItems: MenuProps['items'] = [
   { key: '/market', icon: <BarChartOutlined />, label: <Link to="/market">Market</Link> },
   { key: '/news', icon: <FileTextOutlined />, label: <Link to="/news">News</Link> },
   { key: '/advice', icon: <AlertOutlined />, label: <Link to="/advice">Advice</Link> },
+  { key: '/paper-trading', icon: <FundProjectionScreenOutlined />, label: <Link to="/paper-trading">模拟交易</Link> },
   { key: '/notifications', icon: <BellOutlined />, label: <Link to="/notifications">Notifications</Link> },
   { key: '/settings', icon: <SettingOutlined />, label: <Link to="/settings">Settings</Link> },
 ];

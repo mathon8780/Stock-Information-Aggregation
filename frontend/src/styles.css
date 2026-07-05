@@ -463,6 +463,32 @@ html[data-theme='dark'] .ant-table-tbody > tr > td {
   height: 280px;
 }
 
+.paper-auth-grid {
+  align-items: stretch;
+}
+
+.paper-auth-grid .ant-card,
+.paper-order-card {
+  height: 100%;
+}
+
+.paper-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.paper-quantity-input {
+  width: 100%;
+}
+
+.paper-order-note {
+  display: block;
+  margin-top: 12px;
+  font-size: 12px;
+  line-height: 18px;
+}
+
 .compact-list .ant-list-item {
   padding: 12px 0;
 }
@@ -750,6 +776,10 @@ html[data-theme='dark'] .ant-alert-warning {
   .index-strip {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .paper-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 640px) {
@@ -797,6 +827,10 @@ html[data-theme='dark'] .ant-alert-warning {
   }
 
   .index-strip {
+    grid-template-columns: 1fr;
+  }
+
+  .paper-summary-grid {
     grid-template-columns: 1fr;
   }
 

@@ -1,4 +1,4 @@
-import type { Advice, CollectionJob, CollectorStartResult, IntradayKline, Kline, NewsItem, NewsLlmConfig, NewsLlmConfigPayload, NewsLlmKeyStatus, NotificationItem, Paged, Snapshot, Stock, WatchItem } from '../types';
+import type { Advice, CollectionJob, CollectorStartResult, IntradayKline, Kline, NewsItem, NewsLlmConfig, NewsLlmConfigPayload, NewsLlmKeyStatus, NotificationItem, Paged, PaperAccount, PaperCashFlow, PaperOrder, PaperPosition, PaperSummary, PaperTrade, Snapshot, Stock, WatchItem } from '../types';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000/api/v1';
 
@@ -69,7 +69,21 @@ export const api = {
   simplifyPendingNews: (limit = 30) => request(`/news/simplify-pending?limit=${limit}`, { method: 'POST' }),
   jobs: (limit = 50) => request<Paged<CollectionJob>>(`/collection-jobs?limit=${limit}`),
   notifications: (status?: string) => request<Paged<NotificationItem>>(`/notifications?limit=100${status ? `&status=${status}` : ''}`),
+  createPaperAccount: (payload: { owner_name: string; password: string }) => request<PaperAccount>('/paper/accounts', { method: 'POST', body: JSON.stringify(payload) }),
+  loginPaperAccount: (payload: { owner_name: string; password: string }) => request<{ token: string; account: PaperAccount }>('/paper/sessions', { method: 'POST', body: JSON.stringify(payload) }),
+  paperSummary: (token: string) => request<PaperSummary>('/paper/summary', { headers: paperAuth(token) }),
+  resetPaperAccount: (token: string) => request<PaperSummary>('/paper/account/reset', { method: 'POST', headers: paperAuth(token) }),
+  paperPositions: (token: string) => request<Paged<PaperPosition>>('/paper/positions', { headers: paperAuth(token) }),
+  paperOrders: (token: string) => request<Paged<PaperOrder>>('/paper/orders', { headers: paperAuth(token) }),
+  createPaperOrder: (token: string, payload: { code: string; side: 'buy' | 'sell'; order_type: string; quantity: number; limit_price?: number | null; trigger_price?: number | null }) =>
+    request<PaperOrder>('/paper/orders', { method: 'POST', headers: paperAuth(token), body: JSON.stringify(payload) }),
+  paperTrades: (token: string) => request<Paged<PaperTrade>>('/paper/trades', { headers: paperAuth(token) }),
+  paperCashFlows: (token: string) => request<Paged<PaperCashFlow>>('/paper/cash-flows', { headers: paperAuth(token) }),
 };
+
+function paperAuth(token: string): Record<string, string> {
+  return { Authorization: `Bearer ${token}` };
+}
 
 export function eventsUrl(): string {
   return `${API_BASE_URL}/events`;

@@ -7,6 +7,7 @@ import News from './pages/News';
 import Advice from './pages/Advice';
 import Settings from './pages/Settings';
 import Notifications from './pages/Notifications';
+import PaperTrading from './pages/PaperTrading';
 
 const router = createBrowserRouter([
   {
@@ -18,6 +19,7 @@ const router = createBrowserRouter([
       { path: 'stock/:code', element: <StockDetail /> },
       { path: 'news', element: <News /> },
       { path: 'advice', element: <Advice /> },
+      { path: 'paper-trading', element: <PaperTrading /> },
       { path: 'settings', element: <Settings /> },
       { path: 'notifications', element: <Notifications /> },
       { path: '*', element: <Navigate to="/" replace /> },
@@ -28,4 +30,3 @@ const router = createBrowserRouter([
 export default function App() {
   return <RouterProvider router={router} />;
 }
-

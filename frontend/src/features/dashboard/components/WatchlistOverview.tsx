@@ -1,8 +1,9 @@
-import { DeleteOutlined, HolderOutlined, PlusOutlined, StarFilled } from '@ant-design/icons';
+import { DeleteOutlined, HolderOutlined, PlusOutlined, ShoppingCartOutlined, StarFilled } from '@ant-design/icons';
 import { Button, Card, Popconfirm, Select, Space, Switch, Table, Tag, Tooltip, Typography, message } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
+import { Link } from 'react-router-dom';
 import { ApiError, api, formatNumber } from '../../../api/client';
 import PriceText from '../../../components/PriceText';
 import SignalTag from '../../../components/SignalTag';
@@ -230,24 +231,31 @@ export default function WatchlistOverview({ watchlist, maxSize, onChanged }: Wat
     },
     {
       title: '操作',
-      width: 76,
+      width: 112,
       fixed: 'right',
       render: (_: unknown, row) => (
-        <Popconfirm
-          title="移出自选股？"
-          okText="移出"
-          cancelText="取消"
-          onConfirm={() => removeWatch(row.stock.code)}
-        >
-          <Button
-            danger
-            type="text"
-            size="small"
-            aria-label={`移出 ${row.stock.code}`}
-            icon={<DeleteOutlined />}
-            loading={removingCode === row.stock.code}
-          />
-        </Popconfirm>
+        <Space size={4}>
+          <Tooltip title="模拟买入">
+            <Link to={`/paper-trading?code=${encodeURIComponent(row.stock.code)}`}>
+              <Button type="text" size="small" aria-label={`模拟买入 ${row.stock.code}`} icon={<ShoppingCartOutlined />} />
+            </Link>
+          </Tooltip>
+          <Popconfirm
+            title="移出自选股？"
+            okText="移出"
+            cancelText="取消"
+            onConfirm={() => removeWatch(row.stock.code)}
+          >
+            <Button
+              danger
+              type="text"
+              size="small"
+              aria-label={`移出 ${row.stock.code}`}
+              icon={<DeleteOutlined />}
+              loading={removingCode === row.stock.code}
+            />
+          </Popconfirm>
+        </Space>
       ),
     },
   ];
