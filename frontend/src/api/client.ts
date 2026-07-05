@@ -91,7 +91,13 @@ export const api = {
   cancelPaperOrder: (token: string, orderId: number) => request<PaperOrder>(`/paper/orders/${orderId}/cancel`, { method: 'POST', headers: paperAuth(token) }),
   runPaperMatching: (token: string) => request<{ checked: number; triggered: number; filled: number }>('/paper/match/run', { method: 'POST', headers: paperAuth(token) }),
   paperTrades: (token: string) => request<Paged<PaperTrade>>('/paper/trades', { headers: paperAuth(token) }),
-  paperCashFlows: (token: string) => request<Paged<PaperCashFlow>>('/paper/cash-flows', { headers: paperAuth(token) }),
+  paperCashFlows: (token: string, filters: { flow_type?: string; date_from?: string; date_to?: string } = {}) => {
+    const params = new URLSearchParams({ page_size: '50' });
+    Object.entries(filters).forEach(([key, value]) => {
+      if (value) params.set(key, value);
+    });
+    return request<Paged<PaperCashFlow>>(`/paper/cash-flows?${params.toString()}`, { headers: paperAuth(token) });
+  },
 };
 
 function paperAuth(token: string): Record<string, string> {

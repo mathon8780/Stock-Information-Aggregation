@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from datetime import datetime, timezone
+from datetime import date, datetime, time, timezone
 from decimal import Decimal
 from threading import Lock
 from typing import Any
@@ -263,8 +263,18 @@ def get_paper_trades(account=Depends(_paper_account), db: Session = Depends(get_
 
 
 @router.get("/paper/cash-flows")
-def get_paper_cash_flows(account=Depends(_paper_account), db: Session = Depends(get_db)) -> dict[str, Any]:
-    return list_cash_flows(db, account)
+def get_paper_cash_flows(
+    flow_type: str | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200),
+    account=Depends(_paper_account),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    start_at = datetime.combine(date_from, time.min, tzinfo=timezone.utc) if date_from else None
+    end_at = datetime.combine(date_to, time.max, tzinfo=timezone.utc) if date_to else None
+    return list_cash_flows(db, account, flow_type=flow_type, date_from=start_at, date_to=end_at, page=page, page_size=page_size)
 
 
 @router.post("/paper/match/run")

@@ -373,9 +373,32 @@ def list_trades(db: Session, account: PaperAccount) -> dict[str, object]:
     return {"items": [trade_dict(trade, stock) for trade, stock in rows], "total": len(rows)}
 
 
-def list_cash_flows(db: Session, account: PaperAccount) -> dict[str, object]:
-    rows = db.execute(select(PaperCashFlow).where(PaperCashFlow.account_id == account.id).order_by(desc(PaperCashFlow.created_at), desc(PaperCashFlow.id))).scalars().all()
-    return {"items": [cash_flow_dict(row) for row in rows], "total": len(rows)}
+def list_cash_flows(
+    db: Session,
+    account: PaperAccount,
+    flow_type: str | None = None,
+    date_from: datetime | None = None,
+    date_to: datetime | None = None,
+    page: int = 1,
+    page_size: int = 50,
+) -> dict[str, object]:
+    conditions = [PaperCashFlow.account_id == account.id]
+    if flow_type:
+        conditions.append(PaperCashFlow.flow_type == flow_type)
+    if date_from:
+        conditions.append(PaperCashFlow.created_at >= date_from)
+    if date_to:
+        conditions.append(PaperCashFlow.created_at <= date_to)
+
+    total = db.execute(select(func.count()).select_from(PaperCashFlow).where(*conditions)).scalar_one()
+    rows = db.execute(
+        select(PaperCashFlow)
+        .where(*conditions)
+        .order_by(desc(PaperCashFlow.created_at), desc(PaperCashFlow.id))
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    ).scalars().all()
+    return {"items": [cash_flow_dict(row) for row in rows], "total": total, "page": page, "page_size": page_size}
 
 
 def place_order(

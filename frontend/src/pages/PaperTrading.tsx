@@ -16,6 +16,7 @@ const PAPER_TOKEN_KEY = 'market-agent.paper-trading.token';
 type AccountFormValues = { owner_name: string; password: string };
 type OrderFormValues = { code: string; side: 'buy' | 'sell'; order_type: string; quantity: number; limit_price?: number | null; trigger_price?: number | null };
 type OrderFilterValues = { code?: string; side?: 'buy' | 'sell'; order_type?: PaperOrder['order_type']; status?: string };
+type CashFlowFilterValues = { flow_type?: string; date_from?: string; date_to?: string };
 
 const orderStatusColor: Record<string, string> = {
   filled: 'green',
@@ -44,6 +45,7 @@ export default function PaperTrading() {
   const [stockPerformance, setStockPerformance] = useState<PaperStockPerformance[]>([]);
   const [calendarDays, setCalendarDays] = useState<PaperPerformanceCalendarDay[]>([]);
   const [orderFilters, setOrderFilters] = useState<OrderFilterValues>({});
+  const [cashFlowFilters, setCashFlowFilters] = useState<CashFlowFilterValues>({});
   const [positions, setPositions] = useState<PaperPosition[]>([]);
   const [orders, setOrders] = useState<PaperOrder[]>([]);
   const [trades, setTrades] = useState<PaperTrade[]>([]);
@@ -52,6 +54,7 @@ export default function PaperTrading() {
   const [createForm] = Form.useForm<AccountFormValues>();
   const [orderForm] = Form.useForm<OrderFormValues>();
   const [orderFilterForm] = Form.useForm<OrderFilterValues>();
+  const [cashFlowFilterForm] = Form.useForm<CashFlowFilterValues>();
   const orderType = Form.useWatch('order_type', orderForm);
   const queryCode = searchParams.get('code')?.toUpperCase();
 
@@ -67,7 +70,7 @@ export default function PaperTrading() {
         api.paperPositions(activeToken),
         api.paperOrders(activeToken, orderFilters),
         api.paperTrades(activeToken),
-        api.paperCashFlows(activeToken),
+        api.paperCashFlows(activeToken, cashFlowFilters),
       ]);
       setSummary(summaryRes);
       setPerformance(performanceRes);
@@ -89,7 +92,7 @@ export default function PaperTrading() {
       if (showSpinner) setLoading(false);
       else setLoading(false);
     }
-  }, [orderFilters, token]);
+  }, [cashFlowFilters, orderFilters, token]);
 
   useEffect(() => {
     if (token) void load(token, true);
@@ -239,6 +242,19 @@ export default function PaperTrading() {
   const resetOrderFilters = () => {
     orderFilterForm.resetFields();
     setOrderFilters({});
+  };
+
+  const applyCashFlowFilters = (values: CashFlowFilterValues) => {
+    setCashFlowFilters({
+      flow_type: values.flow_type,
+      date_from: values.date_from?.trim() || undefined,
+      date_to: values.date_to?.trim() || undefined,
+    });
+  };
+
+  const resetCashFlowFilters = () => {
+    cashFlowFilterForm.resetFields();
+    setCashFlowFilters({});
   };
 
   const positionColumns: ColumnsType<PaperPosition> = useMemo(() => [
@@ -501,6 +517,34 @@ export default function PaperTrading() {
 
       <div className="section-gap">
         <Card title="资金流水">
+          <Form form={cashFlowFilterForm} layout="vertical" onFinish={applyCashFlowFilters} className="paper-filter-form">
+            <Row gutter={[12, 0]}>
+              <Col xs={24} sm={12} lg={6}>
+                <Form.Item name="flow_type" label="流水类型">
+                  <Select allowClear options={[
+                    { label: '买入扣款', value: 'buy_cost' },
+                    { label: '卖出入账', value: 'sell_income' },
+                    { label: '手续费', value: 'fee' },
+                    { label: '账户重置', value: 'reset' },
+                  ]} />
+                </Form.Item>
+              </Col>
+              <Col xs={24} sm={12} lg={6}>
+                <Form.Item name="date_from" label="开始日期">
+                  <Input placeholder="YYYY-MM-DD" allowClear />
+                </Form.Item>
+              </Col>
+              <Col xs={24} sm={12} lg={6}>
+                <Form.Item name="date_to" label="结束日期">
+                  <Input placeholder="YYYY-MM-DD" allowClear />
+                </Form.Item>
+              </Col>
+            </Row>
+            <Space className="paper-filter-actions">
+              <Button type="primary" htmlType="submit">筛选</Button>
+              <Button onClick={resetCashFlowFilters}>重置</Button>
+            </Space>
+          </Form>
           <Table<PaperCashFlow> rowKey="id" size="small" columns={flowColumns} dataSource={flows} pagination={{ pageSize: 8 }} scroll={{ x: 720 }} />
         </Card>
       </div>

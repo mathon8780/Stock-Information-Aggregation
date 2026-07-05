@@ -166,6 +166,36 @@ def test_paper_market_buy_fills_from_latest_snapshot_and_updates_portfolio():
         assert [flow["flow_type"] for flow in flows] == ["fee", "buy_cost"]
 
 
+def test_paper_cash_flows_support_filtering_and_pagination():
+    reset_database()
+    seed_tradeable_stock(price=10.0)
+
+    with TestClient(app) as client:
+        token = create_and_login(client)
+        order = client.post(
+            "/api/v1/paper/orders",
+            headers=auth(token),
+            json={"code": "300308.SZ", "side": "buy", "order_type": "market", "quantity": 100},
+        )
+        assert order.status_code == 200
+
+        flows = client.get("/api/v1/paper/cash-flows", headers=auth(token)).json()["items"]
+        trade_date = flows[0]["created_at"][:10]
+        response = client.get(
+            f"/api/v1/paper/cash-flows?flow_type=fee&date_from={trade_date}&date_to={trade_date}&page=1&page_size=1",
+            headers=auth(token),
+        )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["total"] == 1
+        assert body["page"] == 1
+        assert body["page_size"] == 1
+        assert len(body["items"]) == 1
+        assert body["items"][0]["flow_type"] == "fee"
+        assert body["items"][0]["amount"] == -0.26
+
+
 def test_paper_order_rejects_invalid_lot_and_insufficient_cash():
     reset_database()
     seed_tradeable_stock(price=6000.0)
