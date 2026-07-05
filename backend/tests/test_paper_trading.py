@@ -403,3 +403,50 @@ def test_take_profit_order_triggers_and_sells_on_match_run():
         summary = client.get("/api/v1/paper/summary", headers=auth(token)).json()
         assert summary["trade_count"] == 2
         assert summary["open_order_count"] == 0
+
+
+def test_paper_performance_summary_tracks_realized_returns():
+    reset_database()
+    seed_tradeable_stock(price=10.0)
+
+    with TestClient(app) as client:
+        token = create_and_login(client)
+        bought = client.post(
+            "/api/v1/paper/orders",
+            headers=auth(token),
+            json={"code": "300308.SZ", "side": "buy", "order_type": "market", "quantity": 100},
+        )
+        assert bought.status_code == 200
+
+        with SessionLocal() as db:
+            position = db.query(PaperPosition).one()
+            position.available_quantity = 100
+            position.today_buy_quantity = 0
+            db.commit()
+
+        add_market_price(12.0, "paper-test-300308-performance")
+        sold = client.post(
+            "/api/v1/paper/orders",
+            headers=auth(token),
+            json={"code": "300308.SZ", "side": "sell", "order_type": "market", "quantity": 100},
+        )
+        assert sold.status_code == 200
+
+        performance = client.get("/api/v1/paper/performance/summary", headers=auth(token))
+
+        assert performance.status_code == 200
+        body = performance.json()
+        assert body["initial_cash"] == 500000.0
+        assert body["current_total_assets"] == 500198.23
+        assert body["total_return_pct"] == 0.04
+        assert body["total_trades"] == 2
+        assert body["closed_trade_count"] == 1
+        assert body["winning_trades"] == 1
+        assert body["losing_trades"] == 0
+        assert body["win_rate_pct"] == 100.0
+        assert body["realized_pnl"] == 198.23
+        assert body["average_pnl"] == 198.23
+        assert body["average_profit"] == 198.23
+        assert body["average_loss"] == 0.0
+        assert body["max_single_profit"] == 198.23
+        assert body["max_single_loss"] == 0.0

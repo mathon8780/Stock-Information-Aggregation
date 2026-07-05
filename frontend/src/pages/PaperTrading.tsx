@@ -9,7 +9,7 @@ import PageHeader from '../components/PageHeader';
 import PriceText from '../components/PriceText';
 import StockLink from '../components/StockLink';
 import { useBackendEvents } from '../hooks/useBackendEvents';
-import type { PaperCashFlow, PaperOrder, PaperPosition, PaperSummary, PaperTrade } from '../types';
+import type { PaperCashFlow, PaperOrder, PaperPerformanceSummary, PaperPosition, PaperSummary, PaperTrade } from '../types';
 
 const PAPER_TOKEN_KEY = 'market-agent.paper-trading.token';
 
@@ -39,6 +39,7 @@ export default function PaperTrading() {
   const [submitting, setSubmitting] = useState(false);
   const [matching, setMatching] = useState(false);
   const [summary, setSummary] = useState<PaperSummary | null>(null);
+  const [performance, setPerformance] = useState<PaperPerformanceSummary | null>(null);
   const [positions, setPositions] = useState<PaperPosition[]>([]);
   const [orders, setOrders] = useState<PaperOrder[]>([]);
   const [trades, setTrades] = useState<PaperTrade[]>([]);
@@ -53,14 +54,16 @@ export default function PaperTrading() {
     if (!activeToken) return;
     if (showSpinner) setLoading(true);
     try {
-      const [summaryRes, positionsRes, ordersRes, tradesRes, flowsRes] = await Promise.all([
+      const [summaryRes, performanceRes, positionsRes, ordersRes, tradesRes, flowsRes] = await Promise.all([
         api.paperSummary(activeToken),
+        api.paperPerformanceSummary(activeToken),
         api.paperPositions(activeToken),
         api.paperOrders(activeToken),
         api.paperTrades(activeToken),
         api.paperCashFlows(activeToken),
       ]);
       setSummary(summaryRes);
+      setPerformance(performanceRes);
       setPositions(positionsRes.items);
       setOrders(ordersRes.items);
       setTrades(tradesRes.items);
@@ -70,6 +73,7 @@ export default function PaperTrading() {
       localStorage.removeItem(PAPER_TOKEN_KEY);
       setToken('');
       setSummary(null);
+      setPerformance(null);
     } finally {
       if (showSpinner) setLoading(false);
       else setLoading(false);
@@ -121,6 +125,7 @@ export default function PaperTrading() {
     localStorage.removeItem(PAPER_TOKEN_KEY);
     setToken('');
     setSummary(null);
+    setPerformance(null);
     setPositions([]);
     setOrders([]);
     setTrades([]);
@@ -311,6 +316,14 @@ export default function PaperTrading() {
         <MetricCard title="冻结资金" value={summary.cash_frozen} />
         <MetricCard title="持仓市值" value={summary.position_market_value} />
         <MetricCard title="成交次数" value={summary.trade_count} />
+      </div>
+
+      <div className="paper-summary-grid section-gap">
+        <MetricCard title="已实现盈亏" value={performance?.realized_pnl} change={performance?.total_return_pct ?? null} />
+        <MetricCard title="胜率" value={performance?.win_rate_pct} suffix="%" extra={`${performance?.winning_trades ?? 0}/${performance?.closed_trade_count ?? 0} 笔`} />
+        <MetricCard title="平均盈亏" value={performance?.average_pnl} extra={`盈利 ${formatNumber(performance?.average_profit, 2)} / 亏损 ${formatNumber(performance?.average_loss, 2)}`} />
+        <MetricCard title="最大单笔盈利" value={performance?.max_single_profit} extra={`闭合 ${performance?.closed_trade_count ?? 0} 笔`} />
+        <MetricCard title="最大单笔亏损" value={performance?.max_single_loss} extra={`总收益率 ${formatNumber(performance?.total_return_pct, 2)}%`} />
       </div>
 
       <Row gutter={[16, 16]} className="section-gap">

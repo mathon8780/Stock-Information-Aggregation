@@ -115,6 +115,36 @@ def portfolio_summary(db: Session, account: PaperAccount) -> dict[str, object]:
     }
 
 
+def performance_summary(db: Session, account: PaperAccount) -> dict[str, object]:
+    portfolio = portfolio_summary(db, account)
+    current_total_assets = Decimal(str(portfolio["total_assets"]))
+    total_return_pct = Decimal("0.0000")
+    if account.initial_cash:
+        total_return_pct = ((current_total_assets - account.initial_cash) / account.initial_cash * Decimal("100")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+    trades = db.execute(select(PaperTrade).where(PaperTrade.account_id == account.id).order_by(PaperTrade.trade_time, PaperTrade.id)).scalars().all()
+    closed_pnls = [trade.realized_pnl for trade in trades if trade.side == "sell" and trade.realized_pnl is not None]
+    winning_pnls = [pnl for pnl in closed_pnls if pnl > 0]
+    losing_pnls = [pnl for pnl in closed_pnls if pnl < 0]
+
+    return {
+        "initial_cash": _decimal(account.initial_cash),
+        "current_total_assets": _decimal(current_total_assets),
+        "total_return_pct": float(total_return_pct),
+        "total_trades": len(trades),
+        "closed_trade_count": len(closed_pnls),
+        "winning_trades": len(winning_pnls),
+        "losing_trades": len(losing_pnls),
+        "win_rate_pct": _ratio(len(winning_pnls), len(closed_pnls)),
+        "realized_pnl": _decimal(sum(closed_pnls, Decimal("0.0000"))),
+        "average_pnl": _average_decimal(closed_pnls),
+        "average_profit": _average_decimal(winning_pnls),
+        "average_loss": _average_decimal(losing_pnls),
+        "max_single_profit": _decimal(max(winning_pnls, default=Decimal("0.0000"))),
+        "max_single_loss": _decimal(min(losing_pnls, default=Decimal("0.0000"))),
+    }
+
+
 def list_positions(db: Session, account: PaperAccount) -> dict[str, object]:
     items = []
     for position, stock in _positions_with_stocks(db, account.id):
@@ -809,3 +839,15 @@ def _decimal(value: Decimal, digits: int = 2) -> float:
 
 def _optional_decimal(value: Decimal | None) -> float | None:
     return None if value is None else _decimal(value)
+
+
+def _average_decimal(values: list[Decimal]) -> float:
+    if not values:
+        return 0.0
+    return _decimal(sum(values, Decimal("0.0000")) / len(values))
+
+
+def _ratio(numerator: int, denominator: int) -> float:
+    if not denominator:
+        return 0.0
+    return float((Decimal(numerator) / Decimal(denominator) * Decimal("100")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
