@@ -1,4 +1,4 @@
-import { CloseCircleOutlined, LoginOutlined, ReloadOutlined, ShoppingCartOutlined } from '@ant-design/icons';
+import { CloseCircleOutlined, LoginOutlined, ReloadOutlined, ShoppingCartOutlined, SyncOutlined } from '@ant-design/icons';
 import { Alert, Button, Card, Col, Form, Input, InputNumber, Popconfirm, Radio, Row, Select, Space, Spin, Table, Tag, Typography, message } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -14,7 +14,7 @@ import type { PaperCashFlow, PaperOrder, PaperPosition, PaperSummary, PaperTrade
 const PAPER_TOKEN_KEY = 'market-agent.paper-trading.token';
 
 type AccountFormValues = { owner_name: string; password: string };
-type OrderFormValues = { code: string; side: 'buy' | 'sell'; order_type: string; quantity: number; limit_price?: number | null };
+type OrderFormValues = { code: string; side: 'buy' | 'sell'; order_type: string; quantity: number; limit_price?: number | null; trigger_price?: number | null };
 
 const orderStatusColor: Record<string, string> = {
   filled: 'green',
@@ -22,6 +22,7 @@ const orderStatusColor: Record<string, string> = {
   monitoring: 'gold',
   cancelled: 'default',
   rejected: 'red',
+  triggered: 'purple',
 };
 
 const flowLabels: Record<string, string> = {
@@ -36,6 +37,7 @@ export default function PaperTrading() {
   const [token, setToken] = useState(() => localStorage.getItem(PAPER_TOKEN_KEY) ?? '');
   const [loading, setLoading] = useState(Boolean(token));
   const [submitting, setSubmitting] = useState(false);
+  const [matching, setMatching] = useState(false);
   const [summary, setSummary] = useState<PaperSummary | null>(null);
   const [positions, setPositions] = useState<PaperPosition[]>([]);
   const [orders, setOrders] = useState<PaperOrder[]>([]);
@@ -150,8 +152,9 @@ export default function PaperTrading() {
         order_type: values.order_type,
         quantity: values.quantity,
         limit_price: values.order_type === 'limit' ? values.limit_price : null,
+        trigger_price: values.order_type === 'take_profit' || values.order_type === 'stop_loss' ? values.trigger_price : null,
       });
-      message.success(values.order_type === 'limit' ? '限价委托已提交' : '市价委托已成交');
+      message.success(values.order_type === 'market' ? '市价委托已成交' : '委托已提交');
       await load(token, false);
     } catch (error) {
       message.error(error instanceof Error ? error.message : '下单失败');
@@ -174,6 +177,20 @@ export default function PaperTrading() {
     }
   };
 
+  const runMatching = async () => {
+    if (!token) return;
+    setMatching(true);
+    try {
+      const result = await api.runPaperMatching(token);
+      message.success(`撮合完成：检查 ${result.checked} 笔，触发 ${result.triggered} 笔，成交 ${result.filled} 笔`);
+      await load(token, false);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '撮合失败');
+    } finally {
+      setMatching(false);
+    }
+  };
+
   const positionColumns: ColumnsType<PaperPosition> = useMemo(() => [
     { title: '股票', width: 150, render: (_: unknown, row) => <StockLink code={row.code} name={row.name} /> },
     { title: '持仓', dataIndex: 'total_quantity', width: 90, align: 'right' },
@@ -188,10 +205,11 @@ export default function PaperTrading() {
   const orderColumns: ColumnsType<PaperOrder> = useMemo(() => [
     { title: '股票', width: 150, render: (_: unknown, row) => <StockLink code={row.code} name={row.name} /> },
     { title: '方向', width: 70, render: (_: unknown, row) => <Tag color={row.side === 'buy' ? 'red' : 'green'}>{row.side === 'buy' ? '买入' : '卖出'}</Tag> },
-    { title: '类型', width: 80, render: (_: unknown, row) => row.order_type === 'market' ? '市价' : row.order_type },
+    { title: '类型', width: 80, render: (_: unknown, row) => orderTypeLabel(row.order_type) },
     { title: '状态', width: 90, render: (_: unknown, row) => <Tag color={orderStatusColor[row.status] ?? 'default'}>{row.status}</Tag> },
     { title: '数量', dataIndex: 'quantity', width: 90, align: 'right' },
     { title: '限价', width: 90, align: 'right', render: (_: unknown, row) => formatNumber(row.limit_price, 2) },
+    { title: '触发价', width: 90, align: 'right', render: (_: unknown, row) => formatNumber(row.trigger_price, 2) },
     { title: '成交价', width: 90, align: 'right', render: (_: unknown, row) => formatNumber(row.avg_fill_price, 2) },
     { title: '冻结', width: 100, align: 'right', render: (_: unknown, row) => row.side === 'buy' ? formatNumber(row.frozen_cash, 2) : `${row.frozen_quantity}` },
     { title: '费用', width: 90, align: 'right', render: (_: unknown, row) => formatNumber(row.fee_total, 2) },
@@ -201,7 +219,7 @@ export default function PaperTrading() {
       width: 80,
       fixed: 'right',
       render: (_: unknown, row) => (
-        row.status === 'pending' ? (
+        row.status === 'pending' || row.status === 'monitoring' ? (
           <Popconfirm title="撤销该委托？" okText="撤单" cancelText="取消" onConfirm={() => cancelOrder(row.id)}>
             <Button danger type="text" size="small" icon={<CloseCircleOutlined />} loading={submitting} />
           </Popconfirm>
@@ -276,6 +294,7 @@ export default function PaperTrading() {
         extra={(
           <Space wrap>
             <Button icon={<ReloadOutlined />} onClick={() => load(token, true)}>刷新</Button>
+            <Button icon={<SyncOutlined />} loading={matching} onClick={runMatching}>运行撮合</Button>
             <Popconfirm title="重置模拟账户？" description="持仓、委托、成交和流水会被清空。" okText="重置" cancelText="取消" onConfirm={resetAccount}>
               <Button danger loading={submitting}>重置账户</Button>
             </Popconfirm>
@@ -284,7 +303,7 @@ export default function PaperTrading() {
         )}
       />
 
-      <Alert className="settings-alert" type="warning" showIcon message="已启用账户、市价单、限价委托、撤单、冻结资金/持仓、成交和资金流水；止盈止损条件单和更完整撮合规则将在后续阶段开放。" />
+      <Alert className="settings-alert" type="warning" showIcon message="已启用账户、市价单、限价委托、止盈止损条件单、撤单、冻结资金/持仓、成交和资金流水；更完整交易时间和涨跌停规则将在后续阶段开放。" />
 
       <div className="paper-summary-grid">
         <MetricCard title="总资产" value={summary.total_assets} />
@@ -310,10 +329,15 @@ export default function PaperTrading() {
                 <Radio.Group optionType="button" buttonStyle="solid" options={[{ label: '买入', value: 'buy' }, { label: '卖出', value: 'sell' }]} />
               </Form.Item>
               <Form.Item name="order_type" label="订单类型">
-                <Select options={[{ label: '市价单', value: 'market' }, { label: '限价单', value: 'limit' }, { label: '止盈/止损（后续开放）', value: 'stop_loss', disabled: true }]} />
+                <Select options={[{ label: '市价单', value: 'market' }, { label: '限价单', value: 'limit' }, { label: '止盈单', value: 'take_profit' }, { label: '止损单', value: 'stop_loss' }]} />
               </Form.Item>
               {orderType === 'limit' ? (
                 <Form.Item name="limit_price" label="限价" rules={[{ required: true, message: '请输入限价' }]}>
+                  <InputNumber min={0.01} step={0.01} precision={2} className="paper-quantity-input" />
+                </Form.Item>
+              ) : null}
+              {orderType === 'take_profit' || orderType === 'stop_loss' ? (
+                <Form.Item name="trigger_price" label="触发价" rules={[{ required: true, message: '请输入触发价' }]}>
                   <InputNumber min={0.01} step={0.01} precision={2} className="paper-quantity-input" />
                 </Form.Item>
               ) : null}
@@ -322,7 +346,7 @@ export default function PaperTrading() {
               </Form.Item>
               <Button type="primary" htmlType="submit" loading={submitting} block>提交委托</Button>
             </Form>
-            <Typography.Text className="muted paper-order-note">市价单立即按最新价成交；限价单未达价时冻结资金或可卖持仓，可在委托记录中撤单释放。</Typography.Text>
+            <Typography.Text className="muted paper-order-note">市价单立即按最新价成交；限价单未达价时冻结资金或可卖持仓；止盈/止损进入监控，运行撮合后按最新价触发。</Typography.Text>
           </Card>
         </Col>
         <Col xs={24} xl={16}>
@@ -335,7 +359,7 @@ export default function PaperTrading() {
       <Row gutter={[16, 16]} className="section-gap">
         <Col xs={24} xl={12}>
           <Card title="委托记录">
-            <Table<PaperOrder> rowKey="id" size="small" columns={orderColumns} dataSource={orders} pagination={{ pageSize: 6 }} scroll={{ x: 1080 }} />
+            <Table<PaperOrder> rowKey="id" size="small" columns={orderColumns} dataSource={orders} pagination={{ pageSize: 6 }} scroll={{ x: 1160 }} />
           </Card>
         </Col>
         <Col xs={24} xl={12}>
@@ -352,4 +376,14 @@ export default function PaperTrading() {
       </div>
     </>
   );
+}
+
+function orderTypeLabel(value: PaperOrder['order_type']): string {
+  const labels: Record<PaperOrder['order_type'], string> = {
+    market: '市价',
+    limit: '限价',
+    take_profit: '止盈',
+    stop_loss: '止损',
+  };
+  return labels[value] ?? value;
 }

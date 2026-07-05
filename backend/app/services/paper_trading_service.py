@@ -170,10 +170,12 @@ def place_order(
 ) -> dict[str, object]:
     if quantity < 100 or quantity % 100 != 0:
         raise HTTPException(status_code=400, detail="A 股模拟交易数量必须为 100 股整数倍")
-    if order_type not in {"market", "limit"}:
-        raise HTTPException(status_code=400, detail="止盈/止损条件单将在条件单阶段开放")
+    if order_type not in {"market", "limit", "take_profit", "stop_loss"}:
+        raise HTTPException(status_code=400, detail="不支持的订单类型")
     if order_type == "limit" and limit_price is None:
         raise HTTPException(status_code=400, detail="限价单必须填写限价")
+    if order_type in {"take_profit", "stop_loss"} and trigger_price is None:
+        raise HTTPException(status_code=400, detail="条件单必须填写触发价")
 
     stock = db.execute(select(Stock).where(Stock.code == normalize_code(code), Stock.security_type == "stock")).scalar_one_or_none()
     if stock is None:
@@ -181,6 +183,11 @@ def place_order(
     latest = _latest_price(db, stock.id)
     if order_type == "limit":
         order = _place_limit_order(db, account, stock, side, quantity, Decimal(str(limit_price)), latest)
+        db.commit()
+        db.refresh(order)
+        return order_dict(order, stock)
+    if order_type in {"take_profit", "stop_loss"}:
+        order = _place_condition_order(db, account, stock, side, order_type, quantity, Decimal(str(trigger_price)))
         db.commit()
         db.refresh(order)
         return order_dict(order, stock)
@@ -225,6 +232,32 @@ def cancel_order(db: Session, account: PaperAccount, order_id: int) -> dict[str,
     db.commit()
     db.refresh(order)
     return order_dict(order, stock)
+
+
+def run_matching(db: Session, account: PaperAccount) -> dict[str, int]:
+    rows = db.execute(
+        select(PaperOrder, Stock)
+        .join(Stock, PaperOrder.stock_id == Stock.id)
+        .where(PaperOrder.account_id == account.id, PaperOrder.status.in_(("pending", "monitoring")))
+        .order_by(PaperOrder.created_at, PaperOrder.id)
+    ).all()
+    checked = 0
+    triggered = 0
+    filled = 0
+    for order, stock in rows:
+        checked += 1
+        latest = _latest_price(db, stock.id)
+        if order.order_type == "limit" and _limit_crosses(order, latest):
+            _fill_existing_order(db, account, order, stock, latest)
+            filled += 1
+        elif order.order_type in {"take_profit", "stop_loss"} and _condition_crosses(order, latest):
+            order.status = "triggered"
+            order.triggered_at = datetime.now(timezone.utc)
+            triggered += 1
+            _fill_existing_order(db, account, order, stock, latest)
+            filled += 1
+    db.commit()
+    return {"checked": checked, "triggered": triggered, "filled": filled}
 
 
 def calculate_fees(amount: Decimal, side: str) -> dict[str, Decimal]:
@@ -301,6 +334,115 @@ def _place_limit_order(
     db.add(order)
     db.flush()
     return order
+
+
+def _place_condition_order(
+    db: Session,
+    account: PaperAccount,
+    stock: Stock,
+    side: str,
+    order_type: str,
+    quantity: int,
+    trigger_price: Decimal,
+) -> PaperOrder:
+    if side != "sell":
+        raise HTTPException(status_code=400, detail="止盈/止损条件单当前仅支持卖出")
+    position = _position_for_update(db, account.id, stock.id)
+    if position.available_quantity < quantity:
+        raise HTTPException(status_code=400, detail="可卖持仓不足，T+1 当日买入数量不可卖出")
+    order = PaperOrder(
+        account_id=account.id,
+        stock_id=stock.id,
+        side=side,
+        order_type=order_type,
+        status="monitoring",
+        quantity=quantity,
+        trigger_price=_money4(trigger_price),
+    )
+    db.add(order)
+    db.flush()
+    return order
+
+
+def _limit_crosses(order: PaperOrder, latest: PaperPrice) -> bool:
+    if order.limit_price is None:
+        return False
+    return latest.price <= order.limit_price if order.side == "buy" else latest.price >= order.limit_price
+
+
+def _condition_crosses(order: PaperOrder, latest: PaperPrice) -> bool:
+    if order.trigger_price is None:
+        return False
+    if order.order_type == "take_profit":
+        return latest.price >= order.trigger_price
+    if order.order_type == "stop_loss":
+        return latest.price <= order.trigger_price
+    return False
+
+
+def _fill_existing_order(db: Session, account: PaperAccount, order: PaperOrder, stock: Stock, latest: PaperPrice) -> None:
+    amount = _money(latest.price * order.quantity)
+    fees = calculate_fees(amount, order.side)
+    if order.side == "buy":
+        _fill_existing_buy(db, account, order, stock, latest, amount, fees)
+    else:
+        _fill_existing_sell(db, account, order, stock, latest, amount, fees)
+
+
+def _fill_existing_buy(db: Session, account: PaperAccount, order: PaperOrder, stock: Stock, latest: PaperPrice, amount: Decimal, fees: dict[str, Decimal]) -> None:
+    required = amount + fees["fee_total"]
+    if order.frozen_cash > 0:
+        refund = order.frozen_cash - required
+        if refund < 0:
+            raise HTTPException(status_code=400, detail="冻结资金不足，无法成交")
+        account.cash_frozen -= order.frozen_cash
+        account.cash_available += refund
+        order.frozen_cash = Decimal("0.0000")
+    elif account.cash_available >= required:
+        account.cash_available -= required
+    else:
+        raise HTTPException(status_code=400, detail="可用资金不足")
+    account.cash_balance -= required
+    order.status = "filled"
+    order.filled_quantity = order.quantity
+    order.avg_fill_price = latest.price
+    order.fee_total = fees["fee_total"]
+    order.filled_at = datetime.now(timezone.utc)
+    trade = _create_trade(db, account, order, stock, "buy", order.quantity, latest, amount, fees, realized_pnl=None)
+    position = _position_for_update(db, account.id, stock.id)
+    position.total_quantity += order.quantity
+    position.today_buy_quantity += order.quantity
+    position.cost_amount = _money4(position.cost_amount + amount + fees["fee_total"])
+    position.avg_cost = _money4(position.cost_amount / position.total_quantity)
+    _add_cash_flow(db, account, order.id, trade.id, "buy_cost", -amount, "委托撮合买入成交")
+    _add_cash_flow(db, account, order.id, trade.id, "fee", -fees["fee_total"], "买入手续费")
+
+
+def _fill_existing_sell(db: Session, account: PaperAccount, order: PaperOrder, stock: Stock, latest: PaperPrice, amount: Decimal, fees: dict[str, Decimal]) -> None:
+    position = _position_for_update(db, account.id, stock.id)
+    if order.frozen_quantity > 0:
+        position.frozen_quantity -= order.frozen_quantity
+        order.frozen_quantity = 0
+    elif position.available_quantity >= order.quantity:
+        position.available_quantity -= order.quantity
+    else:
+        raise HTTPException(status_code=400, detail="可卖持仓不足，T+1 当日买入数量不可卖出")
+    cost_removed = _money4(position.avg_cost * order.quantity)
+    realized_pnl = _money4(amount - cost_removed - fees["fee_total"])
+    account.cash_balance += amount - fees["fee_total"]
+    account.cash_available += amount - fees["fee_total"]
+    order.status = "filled"
+    order.filled_quantity = order.quantity
+    order.avg_fill_price = latest.price
+    order.fee_total = fees["fee_total"]
+    order.filled_at = datetime.now(timezone.utc)
+    trade = _create_trade(db, account, order, stock, "sell", order.quantity, latest, amount, fees, realized_pnl=realized_pnl)
+    position.total_quantity -= order.quantity
+    position.cost_amount = _money4(max(Decimal("0.0000"), position.cost_amount - cost_removed))
+    position.realized_pnl = _money4(position.realized_pnl + realized_pnl)
+    position.avg_cost = _money4(position.cost_amount / position.total_quantity) if position.total_quantity else Decimal("0.0000")
+    _add_cash_flow(db, account, order.id, trade.id, "sell_income", amount, "委托撮合卖出成交")
+    _add_cash_flow(db, account, order.id, trade.id, "fee", -fees["fee_total"], "卖出手续费")
 
 
 def account_dict(account: PaperAccount) -> dict[str, object]:

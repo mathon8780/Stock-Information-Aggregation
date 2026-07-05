@@ -33,6 +33,7 @@ from app.services.paper_trading_service import (
     place_order,
     portfolio_summary,
     reset_account,
+    run_matching,
 )
 from app.services.news_collector_service import NewsCollector
 from app.services.real_collector_service import AkshareCollector, DEFAULT_WATCHLIST
@@ -215,6 +216,14 @@ def get_paper_trades(account=Depends(_paper_account), db: Session = Depends(get_
 @router.get("/paper/cash-flows")
 def get_paper_cash_flows(account=Depends(_paper_account), db: Session = Depends(get_db)) -> dict[str, Any]:
     return list_cash_flows(db, account)
+
+
+@router.post("/paper/match/run")
+def run_paper_matching(account=Depends(_paper_account), db: Session = Depends(get_db)) -> dict[str, Any]:
+    result = run_matching(db, account)
+    if result["filled"] or result["triggered"]:
+        publish_event("paper_order.updated", {"account_id": account.id, **result})
+    return result
 
 
 @router.get("/stocks")
