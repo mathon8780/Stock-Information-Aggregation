@@ -622,10 +622,10 @@ def collection_jobs(limit: int = Query(50, ge=1, le=200), db: Session = Depends(
 
 
 @router.get("/notifications")
-def notifications(status: str | None = None, limit: int = Query(100, ge=1, le=300), db: Session = Depends(get_db)) -> dict[str, Any]:
+def notifications(notification_type: str | None = None, limit: int = Query(100, ge=1, le=300), db: Session = Depends(get_db)) -> dict[str, Any]:
     stmt = select(Notification).order_by(desc(Notification.created_at))
-    if status:
-        stmt = stmt.where(Notification.status == status)
+    if notification_type:
+        stmt = stmt.where(Notification.notification_type == notification_type)
     rows = db.execute(stmt.limit(limit)).scalars().all()
     return {"items": [notification_dict(row) for row in rows], "total": len(rows)}
 

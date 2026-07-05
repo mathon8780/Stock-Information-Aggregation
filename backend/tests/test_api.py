@@ -712,12 +712,13 @@ def test_collect_real_news_with_deepseek_summary(monkeypatch):
         assert item["llm_model"] == "fake-deepseek"
         assert item["simplified_at"] is not None
 
-        notifications = client.get("/api/v1/notifications?status=pending").json()["items"]
-        digest = next(row for row in notifications if row["notification_type"] == "news_digest" and row["payload"].get("news_id") == item["id"])
+        notifications = client.get("/api/v1/notifications?notification_type=news_digest").json()["items"]
+        digest = next(row for row in notifications if row["payload"].get("news_id") == item["id"])
         assert digest["target_channel"] == "configured_qqbot_default"
         assert "财联社" in digest["title"]
         assert "https://example.com/news/1" in digest["content"]
-        major = next(row for row in notifications if row["notification_type"] == "major_event" and row["payload"].get("news_id") == item["id"])
+        major_notifications = client.get("/api/v1/notifications?notification_type=major_event").json()["items"]
+        major = next(row for row in major_notifications if row["payload"].get("news_id") == item["id"])
         assert major["payload"]["importance"] == 4
         assert "重大事件" in major["title"]
 

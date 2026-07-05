@@ -10,19 +10,19 @@ import type { NotificationItem } from '../types';
 
 export default function Notifications() {
   const [items, setItems] = useState<NotificationItem[]>([]);
-  const [status, setStatus] = useState<string | undefined>();
+  const [notificationType, setNotificationType] = useState<string | undefined>();
   const [loading, setLoading] = useState(false);
 
   const load = useCallback(async (showSpinner = true) => {
     if (showSpinner) setLoading(true);
     try {
-      setItems((await api.notifications(status)).items);
+      setItems((await api.notifications(notificationType)).items);
     } catch (error) {
       if (showSpinner) message.error(error instanceof Error ? error.message : '加载失败');
     } finally {
       if (showSpinner) setLoading(false);
     }
-  }, [status]);
+  }, [notificationType]);
 
   useEffect(() => { void load(); }, []);
   useBackendEvents(['notifications.updated'], () => load(false));
@@ -35,7 +35,7 @@ export default function Notifications() {
         extra={<Button icon={<ReloadOutlined />} onClick={() => load(true)}>刷新</Button>}
       />
       <Card className="data-surface">
-        <NotificationsToolbar status={status} setStatus={setStatus} onApply={() => load(true)} />
+        <NotificationsToolbar notificationType={notificationType} setNotificationType={setNotificationType} onApply={() => load(true)} />
         <Table<NotificationItem> rowKey="id" loading={loading} dataSource={items} columns={notificationColumns} pagination={{ pageSize: 10 }} />
       </Card>
     </>

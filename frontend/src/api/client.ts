@@ -68,7 +68,8 @@ export const api = {
   collectNews: () => request('/collector/real/news', { method: 'POST' }),
   simplifyPendingNews: (limit = 30) => request(`/news/simplify-pending?limit=${limit}`, { method: 'POST' }),
   jobs: (limit = 50) => request<Paged<CollectionJob>>(`/collection-jobs?limit=${limit}`),
-  notifications: (status?: string) => request<Paged<NotificationItem>>(`/notifications?limit=100${status ? `&status=${status}` : ''}`),
+  notifications: (notificationType?: string) =>
+    request<Paged<NotificationItem>>(`/notifications?limit=100${notificationType ? `&notification_type=${encodeURIComponent(notificationType)}` : ''}`),
   createPaperAccount: (payload: { owner_name: string; password: string }) => request<PaperAccount>('/paper/accounts', { method: 'POST', body: JSON.stringify(payload) }),
   loginPaperAccount: (payload: { owner_name: string; password: string }) => request<{ token: string; account: PaperAccount }>('/paper/sessions', { method: 'POST', body: JSON.stringify(payload) }),
   logoutPaperAccount: (token: string) => request<{ status: string }>('/paper/sessions/current', { method: 'DELETE', headers: paperAuth(token) }),
