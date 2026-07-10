@@ -1,10 +1,17 @@
 <view class="page news-page">
   <view class="page-header">
-    <text class="page-title">News</text>
-    <text class="page-subtitle">真实资讯与 LLM 整理结果同步展示</text>
+    <view class="ui-icon ui-icon-large icon-news"></view>
+    <view class="page-heading">
+      <text class="page-title">News</text>
+      <text class="page-subtitle">真实资讯与 LLM 整理结果同步展示</text>
+    </view>
   </view>
 
   <view class="card filter-card">
+    <view class="card-title-row">
+      <view class="ui-icon icon-filter"></view>
+      <text class="card-title">筛选</text>
+    </view>
     <text class="filter-label">范围</text>
     <view class="pill-row">
       <view
@@ -30,6 +37,7 @@
 
   <view wx:for="{{items}}" wx:key="id" class="card news-card" data-id="{{item.id}}" bindtap="toggleNews">
     <view class="row-between">
+      <view class="ui-icon ui-icon-small icon-news news-item-icon"></view>
       <view class="news-title-wrap">
         <text class="news-title">{{item.title}}</text>
         <text wx:if="{{item.stockCode}}" class="stock-code">{{item.stockName}} {{item.stockCode}}</text>

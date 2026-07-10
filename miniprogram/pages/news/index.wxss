@@ -18,6 +18,14 @@
   padding-bottom: 22rpx;
 }
 
+.news-card .row-between {
+  align-items: flex-start;
+}
+
+.news-item-icon {
+  margin-top: 4rpx;
+}
+
 .news-title-wrap {
   flex: 1;
   min-width: 0;

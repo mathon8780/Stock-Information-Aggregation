@@ -68,6 +68,13 @@ for (const file of requiredFiles.filter((item) => item.endsWith('.js'))) {
   assert.equal(result.status, 0, `${file} must parse as JavaScript:\n${result.stderr}`);
 }
 
+const appStyle = read('app.wxss');
+assert.ok(appStyle.includes('.ui-icon'), 'app.wxss should define reusable icon styles');
+assert.ok(appStyle.includes('.card-title-row'), 'app.wxss should define icon-aware card title layout');
+for (const file of ['pages/login/index.wxml', 'pages/dashboard/index.wxml', 'pages/news/index.wxml', 'pages/paper/index.wxml']) {
+  assert.ok(read(file).includes('ui-icon'), `${file} should render page or section icons`);
+}
+
 const apiSource = read('services/api.js');
 assert.ok(apiSource.includes('apiBaseUrlStorageKey'), 'services/api.js should support configurable backend URL');
 assert.ok(apiSource.includes('formatRequestFailure'), 'services/api.js should format wx.request failures clearly');

@@ -1,10 +1,17 @@
 <view class="page login-page">
   <view class="login-hero">
-    <text class="login-title">证券监视</text>
-    <text class="login-subtitle">进入小程序前请先登录模拟交易用户账号</text>
+    <view class="ui-icon ui-icon-large ui-icon-inverse icon-lock"></view>
+    <view class="login-copy">
+      <text class="login-title">证券监视</text>
+      <text class="login-subtitle">进入小程序前请先登录模拟交易用户账号</text>
+    </view>
   </view>
 
   <view class="card login-card">
+    <view class="card-title-row">
+      <view class="ui-icon icon-account"></view>
+      <text class="card-title">账户登录</text>
+    </view>
     <view class="pill-row auth-tabs">
       <view class="pill {{mode == 'login' ? 'pill-active' : ''}}" data-mode="login" bindtap="setMode">登录账户</view>
       <view class="pill {{mode == 'create' ? 'pill-active' : ''}}" data-mode="create" bindtap="setMode">创建账户</view>
@@ -12,7 +19,10 @@
 
     <block wx:if="{{mode == 'login'}}">
       <view class="field backend-field">
-        <text class="field-label">后端 API 地址</text>
+        <view class="field-title-row">
+          <view class="ui-icon ui-icon-small icon-api"></view>
+          <text class="field-label">后端 API 地址</text>
+        </view>
         <view class="backend-row">
           <input class="input backend-input" value="{{apiBaseUrl}}" data-field="apiBaseUrl" bindinput="bindInput" placeholder="http://电脑IP:8000/api/v1" />
           <button class="secondary-button backend-button" loading="{{submitting}}" bindtap="checkBackend">测试</button>
@@ -32,7 +42,10 @@
 
     <block wx:else>
       <view class="field backend-field">
-        <text class="field-label">后端 API 地址</text>
+        <view class="field-title-row">
+          <view class="ui-icon ui-icon-small icon-api"></view>
+          <text class="field-label">后端 API 地址</text>
+        </view>
         <view class="backend-row">
           <input class="input backend-input" value="{{apiBaseUrl}}" data-field="apiBaseUrl" bindinput="bindInput" placeholder="http://电脑IP:8000/api/v1" />
           <button class="secondary-button backend-button" loading="{{submitting}}" bindtap="checkBackend">测试</button>

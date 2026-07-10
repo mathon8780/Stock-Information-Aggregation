@@ -1,13 +1,19 @@
 <view class="page dashboard-page">
   <view class="page-header">
-    <text class="page-title">Dashboard</text>
-    <text class="page-subtitle">同步 Web 端后端数据 · {{lastUpdated}}</text>
+    <view class="ui-icon ui-icon-large icon-dashboard"></view>
+    <view class="page-heading">
+      <text class="page-title">Dashboard</text>
+      <text class="page-subtitle">同步 Web 端后端数据 · {{lastUpdated}}</text>
+    </view>
   </view>
 
   <view wx:if="{{accountSummary}}" class="card account-card" bindtap="openPaper">
     <view class="row-between">
       <view>
-        <text class="card-title">模拟账户</text>
+        <view class="card-title-row">
+          <view class="ui-icon ui-icon-dark icon-account"></view>
+          <text class="card-title">模拟账户</text>
+        </view>
         <text class="muted">当前登录账户资产同步</text>
       </view>
       <text class="account-total">{{accountSummary.totalAssetsText}}</text>
@@ -34,7 +40,10 @@
   </view>
 
   <view class="card">
-    <text class="card-title">主要指数</text>
+    <view class="card-title-row">
+      <view class="ui-icon icon-market"></view>
+      <text class="card-title">主要指数</text>
+    </view>
     <view class="grid-2">
       <view wx:for="{{indices}}" wx:key="code" class="metric index-metric">
         <text class="metric-label">{{item.name}}</text>
@@ -47,7 +56,10 @@
 
   <view class="card">
     <view class="row-between">
-      <text class="card-title">市场排行</text>
+      <view class="card-title-row">
+        <view class="ui-icon icon-dashboard"></view>
+        <text class="card-title">市场排行</text>
+      </view>
       <text class="muted">涨幅 / 跌幅</text>
     </view>
     <view class="ranking-columns">
@@ -81,7 +93,10 @@
   </view>
 
   <view class="card">
-    <text class="card-title">系统自选股</text>
+    <view class="card-title-row">
+      <view class="ui-icon icon-watch"></view>
+      <text class="card-title">系统自选股</text>
+    </view>
     <view wx:for="{{watchlist}}" wx:key="code" class="list-item watch-row">
       <view>
         <text class="stock-name">{{item.name}}</text>
@@ -98,7 +113,10 @@
 
   <view class="card">
     <view class="row-between">
-      <text class="card-title">最新资讯</text>
+      <view class="card-title-row">
+        <view class="ui-icon icon-news"></view>
+        <text class="card-title">最新资讯</text>
+      </view>
       <button class="ghost-button" bindtap="openNews">更多</button>
     </view>
     <view wx:for="{{news}}" wx:key="id" class="list-item news-row">

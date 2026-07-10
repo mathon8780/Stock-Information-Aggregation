@@ -21,6 +21,7 @@
 
 .account-card .metric {
   background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.14);
 }
 
 .asset-chart {
@@ -47,6 +48,7 @@
   border: 1rpx solid #d6deeb;
   border-radius: 14rpx;
   background: #ffffff;
+  box-shadow: 0 8rpx 24rpx rgba(16, 24, 40, 0.05);
 }
 
 .watch-chip-active {
@@ -83,6 +85,7 @@
   padding: 18rpx;
   border-radius: 14rpx;
   background: #f8fafc;
+  border: 1rpx solid #edf1f7;
 }
 
 .quote-price {
