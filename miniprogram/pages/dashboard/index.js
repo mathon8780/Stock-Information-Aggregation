@@ -1,5 +1,5 @@
 const { api } = require('../../services/api');
-const { getSession } = require('../../services/session');
+const { getSession, goLogin, requirePaperLogin } = require('../../services/session');
 const { polling } = require('../../config');
 const {
   decorateNews,
@@ -39,6 +39,11 @@ Page({
   },
 
   onShow() {
+    const session = requirePaperLogin();
+    if (!session) {
+      this.stopPolling();
+      return;
+    }
     this.loadDashboard(false);
     this.startPolling();
   },
@@ -71,6 +76,7 @@ Page({
 
   async loadDashboard(showToast) {
     const session = getSession();
+    if (!session.token) return;
     this.setData({ loading: true });
     try {
       const tasks = [
@@ -79,7 +85,7 @@ Page({
         api.watchlist(),
         api.news({ limit: 8 }),
       ];
-      if (session.token) tasks.push(api.paperSummary(session.token));
+      tasks.push(api.paperSummary(session.token));
 
       const [marketRes, loserRes, watchRes, newsRes, summaryRes] = await Promise.all(tasks);
       const marketItems = (marketRes.items || []).map(decorateSnapshot);
@@ -98,6 +104,11 @@ Page({
       });
     } catch (error) {
       this.setData({ loading: false });
+      if (error.status === 401) {
+        getApp().clearPaperSession();
+        goLogin();
+        return;
+      }
       if (showToast) {
         wx.showToast({ title: error.message || '加载失败', icon: 'none' });
       }

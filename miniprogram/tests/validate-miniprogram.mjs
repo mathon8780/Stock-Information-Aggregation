@@ -29,6 +29,10 @@ const requiredFiles = [
   'services/session.js',
   'utils/format.js',
   'utils/chart.js',
+  'pages/login/index.js',
+  'pages/login/index.json',
+  'pages/login/index.wxml',
+  'pages/login/index.wxss',
   'pages/dashboard/index.js',
   'pages/dashboard/index.json',
   'pages/dashboard/index.wxml',
@@ -49,11 +53,13 @@ for (const file of requiredFiles) {
 }
 
 const app = readJson('app.json');
-assert.deepEqual(app.pages, ['pages/dashboard/index', 'pages/news/index', 'pages/paper/index']);
-assert.deepEqual(app.tabBar.list.map((item) => item.pagePath), app.pages);
+const contentPages = ['pages/dashboard/index', 'pages/news/index', 'pages/paper/index'];
+assert.equal(app.pages[0], 'pages/login/index', 'login page must be the mini program entry');
+assert.deepEqual(app.pages.slice(1), contentPages);
+assert.deepEqual(app.tabBar.list.map((item) => item.pagePath), contentPages);
 assert.deepEqual(app.tabBar.list.map((item) => item.text), ['Dashboard', 'News', '模拟交易']);
 
-for (const file of ['app.json', 'project.config.json', 'sitemap.json', 'pages/dashboard/index.json', 'pages/news/index.json', 'pages/paper/index.json']) {
+for (const file of ['app.json', 'project.config.json', 'sitemap.json', 'pages/login/index.json', 'pages/dashboard/index.json', 'pages/news/index.json', 'pages/paper/index.json']) {
   assert.doesNotThrow(() => readJson(file), `${file} must be valid JSON`);
 }
 
@@ -80,12 +86,26 @@ for (const fragment of [
 assert.ok(!apiSource.includes('/paper/admin'), 'mini program must not expose paper admin APIs');
 
 const paperSource = read('pages/paper/index.js');
-assert.ok(paperSource.includes('loginPaperAccount'), 'paper page should support user account login');
 assert.ok(paperSource.includes('createPaperOrder'), 'paper page should support user trading');
 assert.ok(paperSource.includes('startPolling'), 'paper page should refresh account data after backend updates');
 assert.ok(!paperSource.toLowerCase().includes('admin'), 'paper page must not expose admin login');
 
+const sessionSource = read('services/session.js');
+assert.ok(sessionSource.includes('requirePaperLogin'), 'session service should expose a content gate');
+assert.ok(sessionSource.includes('/pages/login/index'), 'session gate should redirect to login page');
+
+const loginSource = read('pages/login/index.js');
+assert.ok(loginSource.includes('loginPaperAccount'), 'login page should support user account login');
+assert.ok(loginSource.includes('createPaperAccount'), 'login page should support user account creation');
+assert.ok(loginSource.includes('goHome'), 'login success should enter dashboard tab');
+assert.ok(!loginSource.toLowerCase().includes('admin'), 'login page must not expose admin login');
+
 const dashboardSource = read('pages/dashboard/index.js');
+assert.ok(dashboardSource.includes('requirePaperLogin'), 'dashboard should require login before loading content');
 assert.ok(dashboardSource.includes('startPolling'), 'dashboard should poll to stay in sync with backend updates');
+
+const newsSource = read('pages/news/index.js');
+assert.ok(newsSource.includes('requirePaperLogin'), 'news should require login before loading content');
+assert.ok(paperSource.includes('requirePaperLogin'), 'paper trading should require login before loading content');
 
 console.log('mini program structure validation passed');

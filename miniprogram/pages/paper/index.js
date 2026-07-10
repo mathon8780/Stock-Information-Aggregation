@@ -1,5 +1,5 @@
 const { api } = require('../../services/api');
-const { getSession } = require('../../services/session');
+const { goLogin, requirePaperLogin } = require('../../services/session');
 const { polling } = require('../../config');
 const { drawKlineChart, drawLineChart } = require('../../utils/chart');
 const {
@@ -95,6 +95,7 @@ function decorateFlow(item) {
 
 Page({
   data: {
+    authReady: false,
     loggedIn: false,
     loading: false,
     submitting: false,
@@ -126,13 +127,16 @@ Page({
   },
 
   onShow() {
-    const session = getSession();
-    this.token = session.token;
-    this.setData({ loggedIn: Boolean(this.token) });
-    if (this.token) {
-      this.loadPaper(false);
-      this.startPolling();
+    const session = requirePaperLogin();
+    if (!session) {
+      this.stopPolling();
+      this.setData({ authReady: false, loggedIn: false });
+      return;
     }
+    this.token = session.token;
+    this.setData({ authReady: true, loggedIn: true });
+    this.loadPaper(false);
+    this.startPolling();
   },
 
   onHide() {
@@ -213,7 +217,8 @@ Page({
         getApp().clearPaperSession();
         this.token = '';
         this.stopPolling();
-        this.setData({ loggedIn: false, summary: null });
+        this.setData({ authReady: false, loggedIn: false, summary: null });
+        goLogin();
       }
       if (showToast) wx.showToast({ title: error.message || '加载失败', icon: 'none' });
     }
@@ -308,6 +313,7 @@ Page({
       flows: [],
       intraday: [],
     });
+    goLogin();
   },
 
   async searchStocks() {

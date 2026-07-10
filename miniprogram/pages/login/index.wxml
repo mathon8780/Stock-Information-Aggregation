@@ -1,0 +1,37 @@
+<view class="page login-page">
+  <view class="login-hero">
+    <text class="login-title">证券监视</text>
+    <text class="login-subtitle">进入小程序前请先登录模拟交易用户账号</text>
+  </view>
+
+  <view class="card login-card">
+    <view class="pill-row auth-tabs">
+      <view class="pill {{mode == 'login' ? 'pill-active' : ''}}" data-mode="login" bindtap="setMode">登录账户</view>
+      <view class="pill {{mode == 'create' ? 'pill-active' : ''}}" data-mode="create" bindtap="setMode">创建账户</view>
+    </view>
+
+    <block wx:if="{{mode == 'login'}}">
+      <view class="field">
+        <text class="field-label">账号</text>
+        <input class="input" value="{{loginOwnerName}}" data-field="loginOwnerName" bindinput="bindInput" placeholder="输入模拟交易账号" />
+      </view>
+      <view class="field">
+        <text class="field-label">密码</text>
+        <input class="input" password value="{{loginPassword}}" data-field="loginPassword" bindinput="bindInput" placeholder="输入密码" />
+      </view>
+      <button class="primary-button" loading="{{submitting}}" bindtap="loginPaperAccount">登录并进入</button>
+    </block>
+
+    <block wx:else>
+      <view class="field">
+        <text class="field-label">账号</text>
+        <input class="input" value="{{createOwnerName}}" data-field="createOwnerName" bindinput="bindInput" placeholder="创建模拟交易账号" />
+      </view>
+      <view class="field">
+        <text class="field-label">密码</text>
+        <input class="input" password value="{{createPassword}}" data-field="createPassword" bindinput="bindInput" placeholder="至少 6 位" />
+      </view>
+      <button class="primary-button" loading="{{submitting}}" bindtap="createPaperAccount">创建并进入</button>
+    </block>
+  </view>
+</view>

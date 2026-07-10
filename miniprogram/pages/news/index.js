@@ -1,4 +1,5 @@
 const { api } = require('../../services/api');
+const { requirePaperLogin } = require('../../services/session');
 const { polling } = require('../../config');
 const { decorateNews } = require('../../utils/format');
 
@@ -27,6 +28,11 @@ Page({
   },
 
   onShow() {
+    const session = requirePaperLogin();
+    if (!session) {
+      this.stopPolling();
+      return;
+    }
     this.loadNews(false);
     this.startPolling();
   },
