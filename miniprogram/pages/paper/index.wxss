@@ -91,6 +91,36 @@
   line-height: 54rpx;
 }
 
+.paper-page .row-between > view:first-child,
+.paper-page .row-between > .card-title-row {
+  min-width: 0;
+}
+
+.paper-header-action {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 88rpx;
+  height: 48rpx;
+  padding: 0 18rpx;
+  border: 1rpx solid #d6deeb;
+  border-radius: 10rpx;
+  color: #263548;
+  background: #ffffff;
+  font-size: 22rpx;
+  font-weight: 600;
+  line-height: 1;
+  box-sizing: border-box;
+  white-space: nowrap;
+}
+
+.account-card .paper-header-action {
+  border-color: rgba(255, 255, 255, 0.32);
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.12);
+}
+
 .auth-card {
   padding-top: 28rpx;
 }

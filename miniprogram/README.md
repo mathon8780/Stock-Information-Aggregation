@@ -35,7 +35,9 @@
 
 2. 用微信开发者工具打开 `Project/miniprogram`。
 
-3. 如果真机预览无法访问 `127.0.0.1`，在登录页把“后端 API 地址”改为电脑的局域网地址，例如：
+3. 如需绑定真实微信小程序 AppID，请复制 `project.private.config.example.json` 为 `project.private.config.json`，并只在这个本地私有文件里填写真实 AppID。`project.config.json` 固定使用 `touristappid`，避免把真实 AppID 提交到公开仓库。
+
+4. 如果真机预览无法访问 `127.0.0.1`，在登录页把“后端 API 地址”改为电脑的局域网地址，例如：
 
 ```js
 http://192.168.1.10:8000/api/v1
@@ -48,6 +50,10 @@ http://192.168.1.10:8000/api/v1
 ```
 
 开发者工具中本地调试可以保留 `urlCheck: false`。
+
+## 安全说明
+
+`project.private.config.json` 是本地私有配置，已被忽略，不应提交。GitHub secret scanning 已经标记过的 AppID 需要在腾讯侧撤销或更换；代码仓库只能移除当前和后续提交中的暴露，不能撤销已经公开过的凭据。
 
 ## 校验
 

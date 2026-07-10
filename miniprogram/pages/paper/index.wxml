@@ -61,7 +61,7 @@
           </view>
           <text class="muted">总资产 / 可用现金 / 持仓市值</text>
         </view>
-        <button class="ghost-button" bindtap="logoutPaperAccount">退出</button>
+        <view class="paper-header-action" bindtap="logoutPaperAccount">退出</view>
       </view>
       <view class="paper-compact-grid">
         <view class="metric">
@@ -90,7 +90,7 @@
           <view class="ui-icon icon-watch"></view>
           <text class="card-title">账户自选股与分钟 K</text>
         </view>
-        <button class="ghost-button" bindtap="addWatch">加入自选</button>
+        <view class="paper-header-action" bindtap="addWatch">加入自选</view>
       </view>
       <scroll-view scroll-x class="watch-scroll">
         <view class="watch-strip">

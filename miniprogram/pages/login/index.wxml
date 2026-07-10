@@ -25,7 +25,7 @@
         </view>
         <view class="backend-row">
           <input class="input backend-input" value="{{apiBaseUrl}}" data-field="apiBaseUrl" bindinput="bindInput" placeholder="http://电脑IP:8000/api/v1" />
-          <button class="secondary-button backend-button" loading="{{submitting}}" bindtap="checkBackend">测试</button>
+          <view class="secondary-button compact-action backend-button {{backendChecking ? 'compact-action-disabled' : ''}}" bindtap="checkBackend">测试</view>
         </view>
         <text class="backend-help">真机预览不要使用 127.0.0.1，请填写电脑局域网 IP。</text>
       </view>
@@ -37,7 +37,7 @@
         <text class="field-label">密码</text>
         <input class="input" password value="{{loginPassword}}" data-field="loginPassword" bindinput="bindInput" placeholder="输入密码" />
       </view>
-      <button class="primary-button" loading="{{submitting}}" bindtap="loginPaperAccount">登录并进入</button>
+      <button class="primary-button" loading="{{loginSubmitting}}" bindtap="loginPaperAccount">登录并进入</button>
     </block>
 
     <block wx:else>
@@ -48,7 +48,7 @@
         </view>
         <view class="backend-row">
           <input class="input backend-input" value="{{apiBaseUrl}}" data-field="apiBaseUrl" bindinput="bindInput" placeholder="http://电脑IP:8000/api/v1" />
-          <button class="secondary-button backend-button" loading="{{submitting}}" bindtap="checkBackend">测试</button>
+          <view class="secondary-button compact-action backend-button {{backendChecking ? 'compact-action-disabled' : ''}}" bindtap="checkBackend">测试</view>
         </view>
         <text class="backend-help">真机预览不要使用 127.0.0.1，请填写电脑局域网 IP。</text>
       </view>
@@ -68,10 +68,10 @@
         <text class="field-label">验证码</text>
         <view class="captcha-row">
           <input class="input captcha-input" value="{{createCaptchaCode}}" data-field="createCaptchaCode" bindinput="bindInput" placeholder="输入模拟验证码" />
-          <button class="secondary-button captcha-button" loading="{{submitting}}" bindtap="requestCreateCaptcha">获取</button>
+          <view class="secondary-button compact-action captcha-button {{captchaSubmitting ? 'compact-action-disabled' : ''}}" bindtap="requestCreateCaptcha">获取</view>
         </view>
       </view>
-      <button class="primary-button" loading="{{submitting}}" bindtap="createPaperAccount">创建并进入</button>
+      <button class="primary-button" loading="{{createSubmitting}}" bindtap="createPaperAccount">创建并进入</button>
     </block>
   </view>
 </view>

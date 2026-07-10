@@ -35,8 +35,10 @@
 }
 
 .login-card {
+  width: 100%;
   margin-bottom: 80rpx;
   padding: 30rpx 24rpx;
+  overflow: hidden;
 }
 
 .auth-tabs {
@@ -44,7 +46,7 @@
 }
 
 .backend-field {
-  padding: 18rpx;
+  padding: 14rpx;
   border: 1rpx solid #e4e9f2;
   border-radius: 14rpx;
   background: #f8fafc;
@@ -63,13 +65,51 @@
 
 .backend-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 132rpx;
-  gap: 12rpx;
+  grid-template-columns: minmax(0, 1fr) 116rpx;
+  gap: 8rpx;
+  align-items: stretch;
+  width: 100%;
+  overflow: hidden;
 }
 
-.backend-button {
-  height: 76rpx;
-  line-height: 76rpx;
+.backend-input,
+.backend-button,
+.captcha-input,
+.captcha-button {
+  min-width: 0;
+  width: 100%;
+}
+
+.compact-action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 66rpx;
+  margin: 0;
+  padding: 0 6rpx;
+  border-radius: 10rpx;
+  box-sizing: border-box;
+  color: #263548;
+  font-size: 24rpx;
+  font-weight: 700;
+  line-height: 1;
+  text-align: center;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.backend-input,
+.captcha-input {
+  min-height: 66rpx;
+  padding: 0 16rpx;
+  border-radius: 10rpx;
+  font-size: 26rpx;
+}
+
+.compact-action-disabled {
+  opacity: 0.72;
+  color: #263548;
+  background: #eef2f7;
 }
 
 .backend-help {
@@ -82,17 +122,9 @@
 
 .captcha-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 132rpx;
-  gap: 12rpx;
-}
-
-.captcha-input,
-.captcha-button {
-  min-width: 0;
+  grid-template-columns: minmax(0, 1fr) 116rpx;
+  gap: 8rpx;
+  align-items: stretch;
   width: 100%;
-}
-
-.captcha-button {
-  height: 76rpx;
-  line-height: 76rpx;
+  overflow: hidden;
 }

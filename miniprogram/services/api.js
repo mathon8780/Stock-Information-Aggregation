@@ -45,7 +45,9 @@ function formatRequestFailure(error, url) {
   const codeText = code === undefined || code === null || code === '' ? '' : `（${code}）`;
   let message = `网络请求失败${codeText}：${reason}；请求地址：${url}`;
   if (/\/\/(127\.0\.0\.1|localhost)(:|\/)/.test(url)) {
-    message += '。如果在真机预览，请把后端 API 地址改为电脑局域网 IP，并用 0.0.0.0 启动后端';
+    message += '。开发者工具请确认后端 8000 已启动；真机预览请把后端 API 地址改为电脑局域网 IP，并用 0.0.0.0 启动后端';
+  } else if (/timeout/i.test(reason)) {
+    message += '。请确认电脑和手机在同一网络，且后端服务已启动并允许局域网访问';
   }
   return message;
 }
@@ -56,6 +58,7 @@ function request(path, options = {}) {
     wx.request({
       url,
       method: options.method || 'GET',
+      timeout: options.timeout || 8000,
       data: options.data,
       header: {
         'Content-Type': 'application/json',
@@ -91,8 +94,8 @@ function paperRequest(token, path, options = {}) {
 }
 
 const api = {
-  health() {
-    return request('/health');
+  health(options = {}) {
+    return request('/health', { timeout: 4000, ...options });
   },
   market(params = {}) {
     return request(`/market/snapshot${buildQuery(params)}`);

@@ -69,6 +69,10 @@ for (const file of ['app.json', 'project.config.json', 'sitemap.json', 'pages/lo
   assert.doesNotThrow(() => readJson(file), `${file} must be valid JSON`);
 }
 
+const projectConfig = readJson('project.config.json');
+assert.equal(projectConfig.appid, 'touristappid', 'project.config.json must not commit a real WeChat AppID');
+assert.ok(!/wx[a-f0-9]{16}/i.test(read('project.config.json')), 'project.config.json must not contain a real WeChat AppID');
+
 for (const file of requiredFiles.filter((item) => item.endsWith('.js'))) {
   const result = spawnSync(process.execPath, ['--check', path.join(root, file)], { encoding: 'utf8' });
   assert.equal(result.status, 0, `${file} must parse as JavaScript:\n${result.stderr}`);
@@ -121,11 +125,13 @@ assert.ok(paperMarkup.includes('position-quantity-grid'), 'paper positions shoul
 assert.ok(paperMarkup.includes('data-field="createPhone"'), 'paper create account form should include phone input');
 assert.ok(paperMarkup.includes('requestCreateCaptcha'), 'paper create account form should include captcha request button');
 assert.ok(paperMarkup.includes('data-field="createCaptchaCode"'), 'paper create account form should include captcha input');
+assert.ok(paperMarkup.includes('paper-header-action'), 'paper header actions should use compact centered buttons');
 
 const paperStyle = read('pages/paper/index.wxss');
 assert.ok(paperStyle.includes('.paper-compact-grid'), 'paper page styles should define compact grid layout');
 assert.ok(paperStyle.includes('.order-control-grid'), 'paper page styles should define order control grid layout');
 assert.ok(paperStyle.includes('.position-quantity-grid'), 'paper page styles should define position quantity grid layout');
+assert.ok(paperStyle.includes('.paper-header-action'), 'paper page styles should define compact header action buttons');
 assert.ok(paperStyle.includes('.paper-page button'), 'paper page styles should reset mini program button box sizing');
 assert.ok(paperStyle.includes('grid-template-columns: minmax(0, 1fr) 104rpx'), 'paper search row should keep the search button inside the viewport');
 assert.ok(paperStyle.includes('grid-template-columns: repeat(2, minmax(0, 1fr))'), 'paper action buttons should use equal shrinkable columns');
@@ -151,6 +157,12 @@ const loginMarkup = read('pages/login/index.wxml');
 assert.ok(loginMarkup.includes('data-field="createPhone"'), 'login create account form should include phone input');
 assert.ok(loginMarkup.includes('requestCreateCaptcha'), 'login create account form should include captcha request button');
 assert.ok(loginMarkup.includes('data-field="createCaptchaCode"'), 'login create account form should include captcha input');
+assert.ok(loginMarkup.includes('compact-action backend-button'), 'login backend test action should render stable compact text');
+assert.ok(loginMarkup.includes('compact-action captcha-button'), 'login captcha action should render stable compact text');
+
+const loginStyle = read('pages/login/index.wxss');
+assert.ok(loginStyle.includes('grid-template-columns: minmax(0, 1fr) 116rpx'), 'login compact action rows should keep buttons inside the viewport');
+assert.ok(loginStyle.includes('.compact-action-disabled'), 'login compact buttons should keep visible disabled text');
 
 const dashboardSource = read('pages/dashboard/index.js');
 assert.ok(dashboardSource.includes('requirePaperLogin'), 'dashboard should require login before loading content');

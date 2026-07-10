@@ -13,6 +13,10 @@ Page({
   data: {
     mode: 'login',
     submitting: false,
+    backendChecking: false,
+    captchaSubmitting: false,
+    loginSubmitting: false,
+    createSubmitting: false,
     loginOwnerName: '',
     loginPassword: '',
     createOwnerName: '',
@@ -54,8 +58,9 @@ Page({
   },
 
   async checkBackend() {
+    if (this.data.backendChecking) return;
     this.saveBackendUrl();
-    this.setData({ submitting: true });
+    this.setData({ backendChecking: true });
     try {
       await api.health();
       wx.showToast({ title: '后端连接正常', icon: 'success' });
@@ -66,11 +71,12 @@ Page({
         showCancel: false,
       });
     } finally {
-      this.setData({ submitting: false });
+      this.setData({ backendChecking: false });
     }
   },
 
   async loginPaperAccount() {
+    if (this.data.loginSubmitting) return;
     const ownerName = this.data.loginOwnerName.trim();
     const password = this.data.loginPassword;
     if (!ownerName || !password) {
@@ -78,7 +84,7 @@ Page({
       return;
     }
     this.saveBackendUrl();
-    this.setData({ submitting: true });
+    this.setData({ submitting: true, loginSubmitting: true });
     try {
       const result = await api.loginPaperAccount({ owner_name: ownerName, password });
       getApp().setPaperSession(result);
@@ -87,18 +93,19 @@ Page({
     } catch (error) {
       wx.showModal({ title: '登录失败', content: error.message || '登录失败', showCancel: false });
     } finally {
-      this.setData({ submitting: false });
+      this.setData({ submitting: false, loginSubmitting: false });
     }
   },
 
   async requestCreateCaptcha() {
+    if (this.data.captchaSubmitting) return;
     const phone = normalizePhone(this.data.createPhone);
     if (!isReasonablePhone(phone)) {
       wx.showToast({ title: '请输入正确手机号', icon: 'none' });
       return;
     }
     this.saveBackendUrl();
-    this.setData({ submitting: true });
+    this.setData({ captchaSubmitting: true });
     try {
       const result = await api.createPaperAccountCaptcha({ phone });
       this.setData({
@@ -115,11 +122,12 @@ Page({
     } catch (error) {
       wx.showModal({ title: '获取失败', content: error.message || '获取验证码失败', showCancel: false });
     } finally {
-      this.setData({ submitting: false });
+      this.setData({ captchaSubmitting: false });
     }
   },
 
   async createPaperAccount() {
+    if (this.data.createSubmitting) return;
     const ownerName = this.data.createOwnerName.trim();
     const password = this.data.createPassword;
     const phone = normalizePhone(this.data.createPhone);
@@ -141,7 +149,7 @@ Page({
       return;
     }
     this.saveBackendUrl();
-    this.setData({ submitting: true });
+    this.setData({ submitting: true, createSubmitting: true });
     try {
       await api.createPaperAccount({
         owner_name: ownerName,
@@ -157,7 +165,7 @@ Page({
     } catch (error) {
       wx.showModal({ title: '创建失败', content: error.message || '创建失败', showCancel: false });
     } finally {
-      this.setData({ submitting: false });
+      this.setData({ submitting: false, createSubmitting: false });
     }
   },
 });

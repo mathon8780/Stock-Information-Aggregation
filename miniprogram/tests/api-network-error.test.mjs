@@ -23,4 +23,11 @@ assert.match(message, /request:fail url not in domain list/);
 assert.match(message, /127\.0\.0\.1/);
 assert.match(message, /局域网 IP/);
 
+const timeoutMessage = formatRequestFailure(
+  { errMsg: 'request:fail timeout' },
+  'http://192.168.1.8:8000/api/v1/health',
+);
+assert.match(timeoutMessage, /timeout/);
+assert.match(timeoutMessage, /同一网络/);
+
 console.log('api network error test passed');
