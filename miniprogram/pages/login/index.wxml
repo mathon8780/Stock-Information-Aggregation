@@ -11,6 +11,14 @@
     </view>
 
     <block wx:if="{{mode == 'login'}}">
+      <view class="field backend-field">
+        <text class="field-label">后端 API 地址</text>
+        <view class="backend-row">
+          <input class="input backend-input" value="{{apiBaseUrl}}" data-field="apiBaseUrl" bindinput="bindInput" placeholder="http://电脑IP:8000/api/v1" />
+          <button class="secondary-button backend-button" loading="{{submitting}}" bindtap="checkBackend">测试</button>
+        </view>
+        <text class="backend-help">真机预览不要使用 127.0.0.1，请填写电脑局域网 IP。</text>
+      </view>
       <view class="field">
         <text class="field-label">账号</text>
         <input class="input" value="{{loginOwnerName}}" data-field="loginOwnerName" bindinput="bindInput" placeholder="输入模拟交易账号" />
@@ -23,6 +31,14 @@
     </block>
 
     <block wx:else>
+      <view class="field backend-field">
+        <text class="field-label">后端 API 地址</text>
+        <view class="backend-row">
+          <input class="input backend-input" value="{{apiBaseUrl}}" data-field="apiBaseUrl" bindinput="bindInput" placeholder="http://电脑IP:8000/api/v1" />
+          <button class="secondary-button backend-button" loading="{{submitting}}" bindtap="checkBackend">测试</button>
+        </view>
+        <text class="backend-help">真机预览不要使用 127.0.0.1，请填写电脑局域网 IP。</text>
+      </view>
       <view class="field">
         <text class="field-label">账号</text>
         <input class="input" value="{{createOwnerName}}" data-field="createOwnerName" bindinput="bindInput" placeholder="创建模拟交易账号" />

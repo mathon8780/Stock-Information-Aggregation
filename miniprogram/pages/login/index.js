@@ -1,4 +1,4 @@
-const { api } = require('../../services/api');
+const { api, getConfiguredApiBaseUrl, saveApiBaseUrl } = require('../../services/api');
 const { getSession, goHome } = require('../../services/session');
 
 Page({
@@ -9,6 +9,7 @@ Page({
     loginPassword: '',
     createOwnerName: '',
     createPassword: '',
+    apiBaseUrl: getConfiguredApiBaseUrl(),
   },
 
   onShow() {
@@ -25,6 +26,29 @@ Page({
     this.setData({ [field]: event.detail.value });
   },
 
+  saveBackendUrl() {
+    const apiBaseUrl = saveApiBaseUrl(this.data.apiBaseUrl);
+    this.setData({ apiBaseUrl });
+    return apiBaseUrl;
+  },
+
+  async checkBackend() {
+    this.saveBackendUrl();
+    this.setData({ submitting: true });
+    try {
+      await api.health();
+      wx.showToast({ title: '后端连接正常', icon: 'success' });
+    } catch (error) {
+      wx.showModal({
+        title: '后端连接失败',
+        content: error.message || '请检查后端 API 地址',
+        showCancel: false,
+      });
+    } finally {
+      this.setData({ submitting: false });
+    }
+  },
+
   async loginPaperAccount() {
     const ownerName = this.data.loginOwnerName.trim();
     const password = this.data.loginPassword;
@@ -32,6 +56,7 @@ Page({
       wx.showToast({ title: '请输入账号和密码', icon: 'none' });
       return;
     }
+    this.saveBackendUrl();
     this.setData({ submitting: true });
     try {
       const result = await api.loginPaperAccount({ owner_name: ownerName, password });
@@ -39,7 +64,7 @@ Page({
       wx.showToast({ title: '已登录', icon: 'success' });
       goHome();
     } catch (error) {
-      wx.showToast({ title: error.message || '登录失败', icon: 'none' });
+      wx.showModal({ title: '登录失败', content: error.message || '登录失败', showCancel: false });
     } finally {
       this.setData({ submitting: false });
     }
@@ -52,6 +77,7 @@ Page({
       wx.showToast({ title: '账号不能为空，密码至少 6 位', icon: 'none' });
       return;
     }
+    this.saveBackendUrl();
     this.setData({ submitting: true });
     try {
       await api.createPaperAccount({ owner_name: ownerName, password });
@@ -60,7 +86,7 @@ Page({
       wx.showToast({ title: '账户已创建', icon: 'success' });
       goHome();
     } catch (error) {
-      wx.showToast({ title: error.message || '创建失败', icon: 'none' });
+      wx.showModal({ title: '创建失败', content: error.message || '创建失败', showCancel: false });
     } finally {
       this.setData({ submitting: false });
     }

@@ -1,4 +1,4 @@
-const { apiBaseUrl } = require('../config');
+const { apiBaseUrl, apiBaseUrlStorageKey, defaultApiBaseUrl } = require('../config');
 const { authHeader } = require('./session');
 
 class ApiError extends Error {
@@ -19,10 +19,42 @@ function buildQuery(params) {
   return pairs.length ? `?${pairs.join('&')}` : '';
 }
 
+function normalizeApiBaseUrl(value) {
+  const fallback = defaultApiBaseUrl || apiBaseUrl;
+  const normalized = String(value || fallback || '').trim().replace(/\/+$/, '');
+  return normalized || fallback;
+}
+
+function getConfiguredApiBaseUrl() {
+  try {
+    return normalizeApiBaseUrl(wx.getStorageSync(apiBaseUrlStorageKey) || apiBaseUrl);
+  } catch (error) {
+    return normalizeApiBaseUrl(apiBaseUrl);
+  }
+}
+
+function saveApiBaseUrl(value) {
+  const normalized = normalizeApiBaseUrl(value);
+  wx.setStorageSync(apiBaseUrlStorageKey, normalized);
+  return normalized;
+}
+
+function formatRequestFailure(error, url) {
+  const code = error && (error.errCode || error.errno || error.code);
+  const reason = (error && (error.errMsg || error.message)) || '网络请求失败';
+  const codeText = code === undefined || code === null || code === '' ? '' : `（${code}）`;
+  let message = `网络请求失败${codeText}：${reason}；请求地址：${url}`;
+  if (/\/\/(127\.0\.0\.1|localhost)(:|\/)/.test(url)) {
+    message += '。如果在真机预览，请把后端 API 地址改为电脑局域网 IP，并用 0.0.0.0 启动后端';
+  }
+  return message;
+}
+
 function request(path, options = {}) {
   return new Promise((resolve, reject) => {
+    const url = `${getConfiguredApiBaseUrl()}${path}`;
     wx.request({
-      url: `${apiBaseUrl}${path}`,
+      url,
       method: options.method || 'GET',
       data: options.data,
       header: {
@@ -41,7 +73,8 @@ function request(path, options = {}) {
         reject(new ApiError(message, status));
       },
       fail(error) {
-        reject(new ApiError(error.errMsg || '网络请求失败', 0));
+        const status = Number(error && (error.errCode || error.errno || error.code)) || 0;
+        reject(new ApiError(formatRequestFailure(error, url), status));
       },
     });
   });
@@ -58,6 +91,9 @@ function paperRequest(token, path, options = {}) {
 }
 
 const api = {
+  health() {
+    return request('/health');
+  },
   market(params = {}) {
     return request(`/market/snapshot${buildQuery(params)}`);
   },
@@ -132,4 +168,9 @@ const api = {
 module.exports = {
   ApiError,
   api,
+  apiBaseUrlStorageKey,
+  formatRequestFailure,
+  getConfiguredApiBaseUrl,
+  normalizeApiBaseUrl,
+  saveApiBaseUrl,
 };

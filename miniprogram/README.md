@@ -35,10 +35,16 @@
 
 2. 用微信开发者工具打开 `Project/miniprogram`。
 
-3. 如果真机预览无法访问 `127.0.0.1`，将 `config.js` 中的 `apiBaseUrl` 改为电脑的局域网地址，例如：
+3. 如果真机预览无法访问 `127.0.0.1`，在登录页把“后端 API 地址”改为电脑的局域网地址，例如：
 
 ```js
-apiBaseUrl: 'http://192.168.1.10:8000/api/v1'
+http://192.168.1.10:8000/api/v1
+```
+
+真机访问局域网地址时，后端需要监听 `0.0.0.0`：
+
+```powershell
+.\.venv\Scripts\python -m uvicorn app.main:app --app-dir backend --host 0.0.0.0 --port 8000 --reload
 ```
 
 开发者工具中本地调试可以保留 `urlCheck: false`。

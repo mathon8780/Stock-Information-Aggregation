@@ -34,3 +34,28 @@
 .auth-tabs {
   margin-bottom: 24rpx;
 }
+
+.backend-field {
+  padding: 18rpx;
+  border-radius: 14rpx;
+  background: #f8fafc;
+}
+
+.backend-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 132rpx;
+  gap: 12rpx;
+}
+
+.backend-button {
+  height: 76rpx;
+  line-height: 76rpx;
+}
+
+.backend-help {
+  display: block;
+  margin-top: 10rpx;
+  color: #667085;
+  font-size: 22rpx;
+  line-height: 1.45;
+}

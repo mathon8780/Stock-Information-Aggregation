@@ -69,7 +69,10 @@ for (const file of requiredFiles.filter((item) => item.endsWith('.js'))) {
 }
 
 const apiSource = read('services/api.js');
+assert.ok(apiSource.includes('apiBaseUrlStorageKey'), 'services/api.js should support configurable backend URL');
+assert.ok(apiSource.includes('formatRequestFailure'), 'services/api.js should format wx.request failures clearly');
 for (const fragment of [
+  '/health',
   '/market/snapshot',
   '/watchlist',
   '/news',
