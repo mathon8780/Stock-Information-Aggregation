@@ -119,6 +119,8 @@ assert.ok(!loginSource.toLowerCase().includes('admin'), 'login page must not exp
 const dashboardSource = read('pages/dashboard/index.js');
 assert.ok(dashboardSource.includes('requirePaperLogin'), 'dashboard should require login before loading content');
 assert.ok(dashboardSource.includes('startPolling'), 'dashboard should poll to stay in sync with backend updates');
+assert.ok(dashboardSource.includes("market: 'INDEX'"), 'dashboard should load main indices from a dedicated INDEX market query');
+assert.ok(dashboardSource.includes('preferredIndexOrder'), 'dashboard should prioritize the configured main index order');
 
 const newsSource = read('pages/news/index.js');
 assert.ok(newsSource.includes('requirePaperLogin'), 'news should require login before loading content');

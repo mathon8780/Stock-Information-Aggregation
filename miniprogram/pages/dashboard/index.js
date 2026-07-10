@@ -10,6 +10,8 @@ const {
   signalClass,
 } = require('../../utils/format');
 
+const preferredIndexOrder = ['000001.SH', '399001.SZ', '399006.SZ', '000300.SH', '000905.SH'];
+
 function decorateWatchItem(item) {
   const snapshot = item.latest_snapshot || {};
   const advice = item.latest_advice || {};
@@ -82,21 +84,28 @@ Page({
       const tasks = [
         api.market({ page: 1, page_size: 300, sort_by: 'change_pct', sort_order: 'desc' }),
         api.market({ page: 1, page_size: 30, sort_by: 'change_pct', sort_order: 'asc' }),
+        api.market({ page: 1, page_size: 20, market: 'INDEX', sort_by: 'code', sort_order: 'asc' }),
         api.watchlist(),
         api.news({ limit: 8 }),
       ];
       tasks.push(api.paperSummary(session.token));
 
-      const [marketRes, loserRes, watchRes, newsRes, summaryRes] = await Promise.all(tasks);
+      const [marketRes, loserRes, indexRes, watchRes, newsRes, summaryRes] = await Promise.all(tasks);
       const marketItems = (marketRes.items || []).map(decorateSnapshot);
       const loserItems = (loserRes.items || []).map(decorateSnapshot);
+      const indexItems = (indexRes.items || []).map(decorateSnapshot);
       const stocks = marketItems.filter((item) => item.security_type === 'stock');
+      const indexByCode = new Map(indexItems.map((item) => [item.code, item]));
+      const preferredCodeSet = new Set(preferredIndexOrder);
+      const preferredIndices = preferredIndexOrder.map((code) => indexByCode.get(code)).filter(Boolean);
+      const fallbackIndices = indexItems.filter((item) => !preferredCodeSet.has(item.code));
+      const indices = [...preferredIndices, ...fallbackIndices].slice(0, 4);
 
       this.setData({
         loading: false,
         lastUpdated: formatTime(new Date().toISOString()),
         accountSummary: summaryRes ? decoratePaperSummary(summaryRes) : null,
-        indices: marketItems.filter((item) => item.security_type === 'index').slice(0, 4),
+        indices,
         topGainers: stocks.slice(0, 6),
         topLosers: loserItems.filter((item) => item.security_type === 'stock').slice(0, 6),
         watchlist: (watchRes.items || []).map(decorateWatchItem).slice(0, 8),
