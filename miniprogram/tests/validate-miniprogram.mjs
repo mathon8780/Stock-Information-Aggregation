@@ -119,6 +119,9 @@ const paperStyle = read('pages/paper/index.wxss');
 assert.ok(paperStyle.includes('.paper-compact-grid'), 'paper page styles should define compact grid layout');
 assert.ok(paperStyle.includes('.order-control-grid'), 'paper page styles should define order control grid layout');
 assert.ok(paperStyle.includes('.position-quantity-grid'), 'paper page styles should define position quantity grid layout');
+assert.ok(paperStyle.includes('.paper-page button'), 'paper page styles should reset mini program button box sizing');
+assert.ok(paperStyle.includes('grid-template-columns: minmax(0, 1fr) 104rpx'), 'paper search row should keep the search button inside the viewport');
+assert.ok(paperStyle.includes('grid-template-columns: repeat(2, minmax(0, 1fr))'), 'paper action buttons should use equal shrinkable columns');
 
 const chartSource = read('utils/chart.js');
 assert.ok(chartSource.includes('drawAxes'), 'chart utility should draw chart axes and labels');
