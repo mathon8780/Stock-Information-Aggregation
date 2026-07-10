@@ -98,30 +98,34 @@
       <text class="card-title">系统自选股</text>
     </view>
     <view wx:for="{{watchlist}}" wx:key="code" class="list-item watch-row">
-      <view>
+      <view class="watch-main">
         <text class="stock-name">{{item.name}}</text>
         <text class="stock-code">{{item.code}}</text>
       </view>
-      <view class="value-right">
-        <text>{{item.priceText}}</text>
-        <text class="{{item.changeClass}}">{{item.changePctText}}</text>
+      <view class="watch-quote">
+        <text class="watch-price">{{item.priceText}}</text>
+        <text class="watch-change {{item.changeClass}}">{{item.changePctText}}</text>
       </view>
-      <view class="signal {{item.signalClass}}">{{item.signal}}</view>
+      <view class="watch-signal signal {{item.signalClass}}">{{item.signal}}</view>
     </view>
     <view wx:if="{{!watchlist.length && !loading}}" class="empty">暂无系统自选股</view>
   </view>
 
   <view class="card">
-    <view class="row-between">
+    <view class="row-between news-heading-row">
       <view class="card-title-row">
         <view class="ui-icon icon-news"></view>
         <text class="card-title">最新资讯</text>
       </view>
-      <button class="ghost-button" bindtap="openNews">更多</button>
+      <button class="ghost-button news-more-button" bindtap="openNews">更多</button>
     </view>
     <view wx:for="{{news}}" wx:key="id" class="list-item news-row">
       <text class="news-title">{{item.title}}</text>
-      <text class="news-meta">{{item.source}} · {{item.sentimentText}} · {{item.timeText}}</text>
+      <view class="news-meta">
+        <text>{{item.source}} · </text>
+        <text class="news-sentiment {{item.sentimentClass}}">{{item.sentimentText}}</text>
+        <text> · {{item.timeText}}</text>
+      </view>
     </view>
     <view wx:if="{{!news.length && !loading}}" class="empty">暂无资讯</view>
   </view>

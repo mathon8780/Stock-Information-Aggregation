@@ -73,11 +73,18 @@ function decorateSnapshot(item) {
   };
 }
 
+function newsSentimentClass(sentiment) {
+  if (sentiment === 'positive') return 'news-sentiment-positive';
+  if (sentiment === 'negative') return 'news-sentiment-negative';
+  return 'news-sentiment-neutral';
+}
+
 function decorateNews(item) {
   return {
     ...item,
     timeText: formatTime(item.published_at || item.fetched_at),
-    sentimentText: item.sentiment === 'positive' ? '积极' : item.sentiment === 'negative' ? '负面' : '中性',
+    sentimentText: item.sentiment === 'positive' ? '积极' : item.sentiment === 'negative' ? '消极' : '中性',
+    sentimentClass: newsSentimentClass(item.sentiment),
   };
 }
 

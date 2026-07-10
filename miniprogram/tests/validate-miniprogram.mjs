@@ -143,6 +143,23 @@ assert.ok(dashboardSource.includes('startPolling'), 'dashboard should poll to st
 assert.ok(dashboardSource.includes("market: 'INDEX'"), 'dashboard should load main indices from a dedicated INDEX market query');
 assert.ok(dashboardSource.includes('preferredIndexOrder'), 'dashboard should prioritize the configured main index order');
 
+const dashboardMarkup = read('pages/dashboard/index.wxml');
+assert.ok(dashboardMarkup.includes('watch-main'), 'dashboard watchlist should separate stock identity from quote data');
+assert.ok(dashboardMarkup.includes('watch-quote'), 'dashboard watchlist should render price and change in a dedicated quote column');
+assert.ok(dashboardMarkup.includes('news-more-button'), 'dashboard latest news should use a compact more button');
+assert.ok(dashboardMarkup.includes('news-sentiment {{item.sentimentClass}}'), 'dashboard latest news should color only the sentiment text');
+
+const dashboardStyle = read('pages/dashboard/index.wxss');
+assert.ok(dashboardStyle.includes('.watch-quote'), 'dashboard styles should define watch quote spacing');
+assert.ok(dashboardStyle.includes('.watch-price'), 'dashboard styles should keep watch price separate from change percent');
+assert.ok(dashboardStyle.includes('.news-more-button'), 'dashboard styles should define compact latest news more button');
+assert.ok(dashboardStyle.includes('.news-sentiment-positive'), 'dashboard styles should color positive news sentiment');
+assert.ok(dashboardStyle.includes('.news-sentiment-negative'), 'dashboard styles should color negative news sentiment');
+assert.ok(dashboardStyle.includes('.news-sentiment-neutral'), 'dashboard styles should keep neutral news sentiment gray');
+
+const formatSource = read('utils/format.js');
+assert.ok(formatSource.includes('sentimentClass'), 'news decoration should expose a sentiment class');
+
 const newsSource = read('pages/news/index.js');
 assert.ok(newsSource.includes('requirePaperLogin'), 'news should require login before loading content');
 assert.ok(paperSource.includes('requirePaperLogin'), 'paper trading should require login before loading content');

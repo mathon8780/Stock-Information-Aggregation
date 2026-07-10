@@ -68,14 +68,41 @@
 
 .watch-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 150rpx 132rpx;
+  grid-template-columns: minmax(0, 1fr) 116rpx 108rpx;
   align-items: center;
-  gap: 12rpx;
+  gap: 14rpx;
+}
+
+.watch-main,
+.watch-quote,
+.watch-signal {
+  min-width: 0;
+}
+
+.watch-quote {
+  text-align: right;
+}
+
+.watch-price,
+.watch-change {
+  display: block;
+  line-height: 1.25;
+}
+
+.watch-price {
+  color: #475467;
+  font-size: 26rpx;
+}
+
+.watch-change {
+  margin-top: 4rpx;
+  font-size: 24rpx;
+  font-weight: 700;
 }
 
 .signal {
   min-height: 46rpx;
-  padding: 8rpx 12rpx;
+  padding: 8rpx 10rpx;
   border-radius: 999rpx;
   text-align: center;
   font-size: 22rpx;
@@ -97,6 +124,30 @@
   background: #eef2f7;
 }
 
+.dashboard-page button {
+  min-width: 0;
+  margin: 0;
+  box-sizing: border-box;
+}
+
+.dashboard-page button::after {
+  border: 0;
+}
+
+.news-heading-row {
+  align-items: center;
+}
+
+.news-more-button {
+  width: 112rpx;
+  height: 52rpx;
+  padding: 0;
+  border-radius: 10rpx;
+  font-size: 24rpx;
+  font-weight: 650;
+  line-height: 52rpx;
+}
+
 .news-title {
   display: block;
   color: #101820;
@@ -106,8 +157,27 @@
 }
 
 .news-meta {
-  display: block;
+  display: flex;
+  flex-wrap: wrap;
   margin-top: 8rpx;
   color: #667085;
   font-size: 22rpx;
+}
+
+.news-sentiment {
+  color: #667085;
+}
+
+.news-sentiment-positive {
+  color: #d12f2f;
+  font-weight: 700;
+}
+
+.news-sentiment-negative {
+  color: #148f56;
+  font-weight: 700;
+}
+
+.news-sentiment-neutral {
+  color: #667085;
 }
