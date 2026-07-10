@@ -22,6 +22,15 @@ function latestTradingDayBars(items) {
   return bars.filter((item) => String(item.bar_time).slice(0, 10) === day);
 }
 
+function formatShareQuantity(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return '-';
+  const abs = Math.abs(number);
+  if (abs >= 1000000) return `${formatNumber(number / 1000000, 1)}m`;
+  if (abs >= 1000) return `${formatNumber(number / 1000, 1)}k`;
+  return formatNumber(number, 0);
+}
+
 function decorateWatchItem(item) {
   const snapshot = item.latest_snapshot || {};
   const advice = item.latest_advice || {};
@@ -41,12 +50,16 @@ function decoratePosition(item) {
   return {
     ...item,
     marketValueText: formatNumber(item.market_value, 2),
-    quantityText: `${item.available_quantity}/${item.total_quantity}`,
+    availableQuantityText: formatShareQuantity(item.available_quantity),
+    totalQuantityText: formatShareQuantity(item.total_quantity),
+    frozenQuantityText: formatShareQuantity(item.frozen_quantity),
+    todayBuyQuantityText: formatShareQuantity(item.today_buy_quantity),
     pnlText: formatNumber(item.floating_pnl, 2),
     pnlPctText: formatPct(item.floating_pnl_pct, 2),
     pnlClass: priceClass(item.floating_pnl),
     priceText: formatNumber(item.market_price, 2),
     costText: formatNumber(item.avg_cost, 4),
+    assetRatioText: formatPct(item.asset_ratio_pct, 2),
   };
 }
 
@@ -124,6 +137,8 @@ Page({
     limitPrice: '',
     triggerPrice: '',
     recordTab: 'orders',
+    assetChartSize: { width: 340, height: 160 },
+    intradayChartSize: { width: 340, height: 220 },
   },
 
   onShow() {
@@ -134,13 +149,39 @@ Page({
       return;
     }
     this.token = session.token;
-    this.setData({ authReady: true, loggedIn: true });
-    this.loadPaper(false);
-    this.startPolling();
+    this.setData({ authReady: true, loggedIn: true }, () => {
+      this.syncChartSize().finally(() => {
+        this.loadPaper(false);
+        this.startPolling();
+      });
+    });
   },
 
   onHide() {
     this.stopPolling();
+  },
+
+  syncChartSize() {
+    return new Promise((resolve) => {
+      const query = wx.createSelectorQuery().in(this);
+      query.select('.asset-chart').boundingClientRect();
+      query.select('.kline-chart').boundingClientRect();
+      query.exec((rects) => {
+        const [assetRect, intradayRect] = rects || [];
+        const patch = {};
+        if (assetRect && assetRect.width && assetRect.height) {
+          patch.assetChartSize = { width: Math.floor(assetRect.width), height: Math.floor(assetRect.height) };
+        }
+        if (intradayRect && intradayRect.width && intradayRect.height) {
+          patch.intradayChartSize = { width: Math.floor(intradayRect.width), height: Math.floor(intradayRect.height) };
+        }
+        if (Object.keys(patch).length) {
+          this.setData(patch, resolve);
+        } else {
+          resolve();
+        }
+      });
+    });
   },
 
   onUnload() {
@@ -229,12 +270,12 @@ Page({
       time: item.snapshot_time,
       value: item.total_assets,
     }));
-    setTimeout(() => drawLineChart(this, 'assetChart', points, { width: 340, height: 160, color: '#d12f2f' }), 30);
+    setTimeout(() => drawLineChart(this, 'assetChart', points, { ...this.data.assetChartSize, color: '#d12f2f' }), 30);
   },
 
   drawIntradayChart() {
     const trades = (this.data.trades || []).filter((item) => item.code === this.data.selectedCode);
-    setTimeout(() => drawKlineChart(this, 'intradayChart', this.data.intraday, trades, { width: 340, height: 220 }), 30);
+    setTimeout(() => drawKlineChart(this, 'intradayChart', this.data.intraday, trades, this.data.intradayChartSize), 30);
   },
 
   setAuthMode(event) {

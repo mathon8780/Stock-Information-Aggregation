@@ -104,7 +104,25 @@ assert.ok(!apiSource.includes('/paper/admin'), 'mini program must not expose pap
 const paperSource = read('pages/paper/index.js');
 assert.ok(paperSource.includes('createPaperOrder'), 'paper page should support user trading');
 assert.ok(paperSource.includes('startPolling'), 'paper page should refresh account data after backend updates');
+assert.ok(paperSource.includes('syncChartSize'), 'paper page should sync chart canvas dimensions with the viewport');
+assert.ok(paperSource.includes('availableQuantityText'), 'paper positions should display available quantity separately');
+assert.ok(paperSource.includes('totalQuantityText'), 'paper positions should display total quantity separately');
+assert.ok(paperSource.includes('frozenQuantityText'), 'paper positions should display frozen quantity separately');
 assert.ok(!paperSource.toLowerCase().includes('admin'), 'paper page must not expose admin login');
+
+const paperMarkup = read('pages/paper/index.wxml');
+assert.ok(paperMarkup.includes('paper-compact-grid'), 'paper page should use a compact grid for key account data');
+assert.ok(paperMarkup.includes('order-control-grid'), 'paper order form should use a structured control grid');
+assert.ok(paperMarkup.includes('position-quantity-grid'), 'paper positions should separate available, total, and frozen quantities');
+
+const paperStyle = read('pages/paper/index.wxss');
+assert.ok(paperStyle.includes('.paper-compact-grid'), 'paper page styles should define compact grid layout');
+assert.ok(paperStyle.includes('.order-control-grid'), 'paper page styles should define order control grid layout');
+assert.ok(paperStyle.includes('.position-quantity-grid'), 'paper page styles should define position quantity grid layout');
+
+const chartSource = read('utils/chart.js');
+assert.ok(chartSource.includes('drawAxes'), 'chart utility should draw chart axes and labels');
+assert.ok(chartSource.includes('formatAxisValue'), 'chart utility should format axis labels');
 
 const sessionSource = read('services/session.js');
 assert.ok(sessionSource.includes('requirePaperLogin'), 'session service should expose a content gate');

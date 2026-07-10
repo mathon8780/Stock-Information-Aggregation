@@ -3,7 +3,7 @@
     <view class="ui-icon ui-icon-large icon-trade"></view>
     <view class="page-heading">
       <text class="page-title">模拟交易</text>
-      <text class="page-subtitle">用户账号资产、自选股、委托与流水同步展示</text>
+      <text class="page-subtitle">资产、行情、下单、持仓</text>
     </view>
   </view>
 
@@ -52,7 +52,7 @@
         </view>
         <button class="ghost-button" bindtap="logoutPaperAccount">退出</button>
       </view>
-      <view class="grid-2">
+      <view class="paper-compact-grid">
         <view class="metric">
           <text class="metric-label">总资产</text>
           <text class="metric-value">{{summary.totalAssetsText}}</text>
@@ -73,7 +73,7 @@
       <canvas canvas-id="assetChart" class="chart asset-chart"></canvas>
     </view>
 
-    <view class="card">
+    <view class="card market-card">
       <view class="row-between">
         <view class="card-title-row">
           <view class="ui-icon icon-watch"></view>
@@ -136,15 +136,15 @@
         <input class="input" value="{{orderCode}}" data-field="orderCode" bindinput="bindInput" placeholder="例如 300308.SZ" />
       </view>
 
-      <view class="grid-2">
-        <view>
+      <view class="order-control-grid">
+        <view class="order-control-block">
           <text class="field-label">方向</text>
           <view class="segmented">
             <view class="segment {{orderSide == 'buy' ? 'segment-buy-active' : ''}}" data-side="buy" bindtap="setOrderSide">买入</view>
             <view class="segment {{orderSide == 'sell' ? 'segment-sell-active' : ''}}" data-side="sell" bindtap="setOrderSide">卖出</view>
           </view>
         </view>
-        <view>
+        <view class="order-control-block">
           <text class="field-label">类型</text>
           <view class="segmented type-grid">
             <view class="segment {{orderType == 'market' ? 'segment-active' : ''}}" data-type="market" bindtap="setOrderType">市价</view>
@@ -155,22 +155,24 @@
         </view>
       </view>
 
-      <view class="grid-2 form-grid">
-        <view class="field">
+      <view class="order-control-grid order-price-grid">
+        <view class="field compact-field">
           <text class="field-label">数量</text>
           <input class="input" type="number" value="{{quantity}}" data-field="quantity" bindinput="bindInput" />
         </view>
-        <view wx:if="{{orderType == 'limit'}}" class="field">
+        <view wx:if="{{orderType == 'limit'}}" class="field compact-field">
           <text class="field-label">限价</text>
           <input class="input" type="digit" value="{{limitPrice}}" data-field="limitPrice" bindinput="bindInput" />
         </view>
-        <view wx:if="{{orderType == 'take_profit' || orderType == 'stop_loss'}}" class="field">
+        <view wx:if="{{orderType == 'take_profit' || orderType == 'stop_loss'}}" class="field compact-field">
           <text class="field-label">触发价</text>
           <input class="input" type="digit" value="{{triggerPrice}}" data-field="triggerPrice" bindinput="bindInput" />
         </view>
       </view>
-      <button class="primary-button" loading="{{submitting}}" bindtap="submitOrder">提交委托</button>
-      <button class="secondary-button match-button" bindtap="runMatching">运行撮合</button>
+      <view class="order-actions">
+        <button class="primary-button" loading="{{submitting}}" bindtap="submitOrder">提交委托</button>
+        <button class="secondary-button" bindtap="runMatching">运行撮合</button>
+      </view>
     </view>
 
     <view class="card">
@@ -181,11 +183,27 @@
       <view wx:for="{{positions}}" wx:key="stock_id" class="list-item position-row">
         <view>
           <text class="stock-name">{{item.name}}</text>
-          <text class="stock-code">{{item.code}} · {{item.quantityText}}</text>
+          <text class="stock-code">{{item.code}} · 成本 {{item.costText}} · 占比 {{item.assetRatioText}}</text>
         </view>
-        <view class="value-right">
-          <text>{{item.marketValueText}}</text>
-          <text class="{{item.pnlClass}}">{{item.pnlText}} / {{item.pnlPctText}}</text>
+        <view class="position-meta">
+          <view class="position-quantity-grid">
+            <view>
+              <text class="quantity-label">可交易</text>
+              <text class="quantity-value">{{item.availableQuantityText}}</text>
+            </view>
+            <view>
+              <text class="quantity-label">持仓</text>
+              <text class="quantity-value">{{item.totalQuantityText}}</text>
+            </view>
+            <view>
+              <text class="quantity-label">冻结</text>
+              <text class="quantity-value">{{item.frozenQuantityText}}</text>
+            </view>
+          </view>
+          <view class="position-value-row">
+            <text>{{item.marketValueText}}</text>
+            <text class="{{item.pnlClass}}">{{item.pnlText}} / {{item.pnlPctText}}</text>
+          </view>
         </view>
       </view>
       <view wx:if="{{!positions.length}}" class="empty">暂无持仓</view>
