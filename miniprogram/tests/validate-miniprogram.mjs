@@ -58,6 +58,12 @@ assert.equal(app.pages[0], 'pages/login/index', 'login page must be the mini pro
 assert.deepEqual(app.pages.slice(1), contentPages);
 assert.deepEqual(app.tabBar.list.map((item) => item.pagePath), contentPages);
 assert.deepEqual(app.tabBar.list.map((item) => item.text), ['Dashboard', 'News', '模拟交易']);
+for (const item of app.tabBar.list) {
+  assert.ok(item.iconPath, `${item.pagePath} should define tabBar iconPath`);
+  assert.ok(item.selectedIconPath, `${item.pagePath} should define tabBar selectedIconPath`);
+  assert.ok(exists(item.iconPath), `missing tabBar icon: ${item.iconPath}`);
+  assert.ok(exists(item.selectedIconPath), `missing selected tabBar icon: ${item.selectedIconPath}`);
+}
 
 for (const file of ['app.json', 'project.config.json', 'sitemap.json', 'pages/login/index.json', 'pages/dashboard/index.json', 'pages/news/index.json', 'pages/paper/index.json']) {
   assert.doesNotThrow(() => readJson(file), `${file} must be valid JSON`);

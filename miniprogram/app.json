@@ -20,15 +20,21 @@
     "list": [
       {
         "pagePath": "pages/dashboard/index",
-        "text": "Dashboard"
+        "text": "Dashboard",
+        "iconPath": "assets/tabbar/dashboard.png",
+        "selectedIconPath": "assets/tabbar/dashboard-active.png"
       },
       {
         "pagePath": "pages/news/index",
-        "text": "News"
+        "text": "News",
+        "iconPath": "assets/tabbar/news.png",
+        "selectedIconPath": "assets/tabbar/news-active.png"
       },
       {
         "pagePath": "pages/paper/index",
-        "text": "模拟交易"
+        "text": "模拟交易",
+        "iconPath": "assets/tabbar/trade.png",
+        "selectedIconPath": "assets/tabbar/trade-active.png"
       }
     ]
   },
