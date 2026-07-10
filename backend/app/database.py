@@ -35,23 +35,29 @@ def init_db() -> None:
 
 def _upgrade_existing_schema() -> None:
     inspector = inspect(engine)
-    if "news" not in inspector.get_table_names():
-        return
-    existing = {column["name"] for column in inspector.get_columns("news")}
-    columns = {
-        "original_title": "VARCHAR(240)",
-        "simplification_status": "VARCHAR(16) NOT NULL DEFAULT 'pending'",
-        "simplified_at": "TIMESTAMPTZ",
-        "llm_provider": "VARCHAR(64)",
-        "llm_model": "VARCHAR(128)",
-        "prompt_name": "VARCHAR(64)",
-        "error_message": "TEXT",
-    }
+    table_names = set(inspector.get_table_names())
     with engine.begin() as connection:
-        for name, ddl_type in columns.items():
-            if name not in existing:
-                connection.execute(text(f"ALTER TABLE news ADD COLUMN {name} {ddl_type}"))
-        connection.execute(text("UPDATE news SET original_title = substr(title, 1, 240) WHERE original_title IS NULL OR original_title = ''"))
+        if "news" in table_names:
+            existing = {column["name"] for column in inspector.get_columns("news")}
+            columns = {
+                "original_title": "VARCHAR(240)",
+                "simplification_status": "VARCHAR(16) NOT NULL DEFAULT 'pending'",
+                "simplified_at": "TIMESTAMPTZ",
+                "llm_provider": "VARCHAR(64)",
+                "llm_model": "VARCHAR(128)",
+                "prompt_name": "VARCHAR(64)",
+                "error_message": "TEXT",
+            }
+            for name, ddl_type in columns.items():
+                if name not in existing:
+                    connection.execute(text(f"ALTER TABLE news ADD COLUMN {name} {ddl_type}"))
+            connection.execute(text("UPDATE news SET original_title = substr(title, 1, 240) WHERE original_title IS NULL OR original_title = ''"))
+
+        if "paper_accounts" in table_names:
+            existing = {column["name"] for column in inspector.get_columns("paper_accounts")}
+            if "phone" not in existing:
+                connection.execute(text("ALTER TABLE paper_accounts ADD COLUMN phone VARCHAR(20)"))
+            connection.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_paper_accounts_phone ON paper_accounts (phone)"))
 
 
 def get_db():

@@ -59,8 +59,9 @@ def run_pending_watch_stock_syncs(limit: int = 20) -> dict[str, Any]:
 
 
 def run_watch_stock_sync_job(job_id: int) -> dict[str, Any]:
-    if not _run_lock.acquire(blocking=False):
-        return {"job_id": job_id, "status": "skipped", "reason": "another watch stock sync is running"}
+    _run_lock.acquire()
+    code = ""
+    reason = ""
     try:
         with SessionLocal() as db:
             job = db.get(CollectionJob, job_id)
@@ -68,6 +69,9 @@ def run_watch_stock_sync_job(job_id: int) -> dict[str, Any]:
                 return {"job_id": job_id, "status": "missing"}
             payload = job.requested_payload or {}
             code = str(payload.get("code") or "").strip().upper()
+            reason = str(payload.get("reason") or "")
+            if job.status not in RESUMABLE_STATUSES:
+                return {"job_id": job_id, "code": code, "status": job.status, "reason": "already_finished"}
             if not code:
                 _finish_job(db, job, "failed", {"error": "missing code"}, "missing code")
                 return {"job_id": job_id, "status": "failed", "error": "missing code"}
@@ -85,13 +89,18 @@ def run_watch_stock_sync_job(job_id: int) -> dict[str, Any]:
             if job is not None:
                 _finish_job(db, job, status, {"code": code, "steps": summary, "failed_steps": failed_steps}, error_message)
         publish_event("watchlist.updated", {"code": code, "action": "synced", "status": status})
+        _publish_paper_watchlist_sync_event(code, reason, status, job_id, failed_steps=failed_steps)
         publish_event("jobs.updated", {"job_type": WATCH_STOCK_SYNC_JOB, "status": status, "code": code})
         return {"job_id": job_id, "code": code, "status": status, "failed_steps": failed_steps}
     except Exception as exc:
         with SessionLocal() as db:
             job = db.get(CollectionJob, job_id)
             if job is not None:
+                payload = job.requested_payload or {}
+                code = code or str(payload.get("code") or "").strip().upper()
+                reason = reason or str(payload.get("reason") or "")
                 _finish_job(db, job, "failed", {"error": str(exc)}, str(exc))
+        _publish_paper_watchlist_sync_event(code, reason, "failed", job_id, error=str(exc))
         publish_event("jobs.updated", {"job_type": WATCH_STOCK_SYNC_JOB, "status": "failed", "job_id": job_id})
         return {"job_id": job_id, "status": "failed", "error": str(exc)}
     finally:
@@ -152,6 +161,24 @@ def _with_db(action: Callable[[Session], dict[str, Any]]) -> dict[str, Any]:
 def _analysis_summary(db: Session, code: str) -> dict[str, Any]:
     advice = analyze_stock(db, code)
     return {"advice_id": advice.id, "signal": advice.signal, "confidence": float(advice.confidence)}
+
+
+def _publish_paper_watchlist_sync_event(
+    code: str,
+    reason: str,
+    status: str,
+    job_id: int,
+    failed_steps: list[str] | None = None,
+    error: str | None = None,
+) -> None:
+    if not reason.startswith("paper_watchlist"):
+        return
+    payload: dict[str, Any] = {"code": code, "action": "synced", "status": status, "sync_job_id": job_id}
+    if failed_steps:
+        payload["failed_steps"] = failed_steps
+    if error:
+        payload["error"] = error
+    publish_event("paper_watchlist.updated", payload)
 
 
 def _finish_job(db: Session, job: CollectionJob, status: str, summary: dict[str, Any], error_message: str | None) -> None:

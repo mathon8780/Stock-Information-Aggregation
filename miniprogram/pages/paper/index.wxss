@@ -238,6 +238,28 @@
   line-height: 66rpx;
 }
 
+.captcha-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 104rpx;
+  gap: 10rpx;
+  align-items: stretch;
+  width: 100%;
+  overflow: hidden;
+}
+
+.captcha-input,
+.captcha-button {
+  min-width: 0;
+  width: 100%;
+}
+
+.captcha-button {
+  height: 66rpx;
+  padding: 0 8rpx;
+  font-size: 24rpx;
+  line-height: 66rpx;
+}
+
 .candidate-list {
   margin: -4rpx 0 18rpx;
   border: 1rpx solid #edf1f7;

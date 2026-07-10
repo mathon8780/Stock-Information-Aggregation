@@ -79,3 +79,20 @@
   font-size: 22rpx;
   line-height: 1.45;
 }
+
+.captcha-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 132rpx;
+  gap: 12rpx;
+}
+
+.captcha-input,
+.captcha-button {
+  min-width: 0;
+  width: 100%;
+}
+
+.captcha-button {
+  height: 76rpx;
+  line-height: 76rpx;
+}

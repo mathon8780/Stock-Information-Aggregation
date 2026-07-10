@@ -217,6 +217,19 @@ class Watchlist(Base):
     stock: Mapped[Stock] = relationship(back_populates="watchlist_item")
 
 
+class PaperWatchlist(Base):
+    __tablename__ = "paper_watchlist"
+    __table_args__ = (UniqueConstraint("account_id", "stock_id", name="uq_paper_watchlist_account_stock"),)
+
+    id: Mapped[int] = mapped_column(PK_TYPE, primary_key=True, autoincrement=True)
+    account_id: Mapped[int] = mapped_column(ForeignKey("paper_accounts.id"), index=True, nullable=False)
+    stock_id: Mapped[int] = mapped_column(ForeignKey("stocks.id"), nullable=False)
+    display_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    added_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+    stock: Mapped[Stock] = relationship()
+
+
 class CollectionJob(Base):
     __tablename__ = "collection_jobs"
 
@@ -251,6 +264,7 @@ class PaperAccount(Base):
     __tablename__ = "paper_accounts"
     __table_args__ = (
         UniqueConstraint("owner_name", name="uq_paper_accounts_owner_name"),
+        UniqueConstraint("phone", name="uq_paper_accounts_phone"),
         CheckConstraint("cash_balance >= 0", name="ck_paper_accounts_cash_balance"),
         CheckConstraint("cash_available >= 0", name="ck_paper_accounts_cash_available"),
         CheckConstraint("cash_frozen >= 0", name="ck_paper_accounts_cash_frozen"),
@@ -258,6 +272,7 @@ class PaperAccount(Base):
 
     id: Mapped[int] = mapped_column(PK_TYPE, primary_key=True, autoincrement=True)
     owner_name: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, index=True)
+    phone: Mapped[str | None] = mapped_column(String(20), nullable=True, index=True)
     password_hash: Mapped[str] = mapped_column(Text, nullable=False)
     initial_cash: Mapped[Decimal] = mapped_column(Numeric(18, 4), default=Decimal("500000.0000"), nullable=False)
     cash_balance: Mapped[Decimal] = mapped_column(Numeric(18, 4), default=Decimal("500000.0000"), nullable=False)
@@ -356,3 +371,19 @@ class PaperCashFlow(Base):
     cash_balance_after: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False)
     remark: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+
+class PaperEquitySnapshot(Base):
+    __tablename__ = "paper_equity_snapshots"
+
+    id: Mapped[int] = mapped_column(PK_TYPE, primary_key=True, autoincrement=True)
+    account_id: Mapped[int] = mapped_column(ForeignKey("paper_accounts.id"), index=True, nullable=False)
+    snapshot_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True, default=utcnow, nullable=False)
+    cash_balance: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False)
+    cash_frozen: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False)
+    position_market_value: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False)
+    total_assets: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False)
+    net_value: Mapped[Decimal] = mapped_column(Numeric(18, 8), nullable=False)
+    daily_return_pct: Mapped[Decimal | None] = mapped_column(Numeric(10, 4))
+    benchmark_code: Mapped[str | None] = mapped_column(String(32))
+    benchmark_value: Mapped[Decimal | None] = mapped_column(Numeric(18, 8))

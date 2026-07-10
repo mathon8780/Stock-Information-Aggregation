@@ -32,8 +32,19 @@
           <input class="input" value="{{createOwnerName}}" data-field="createOwnerName" bindinput="bindInput" placeholder="创建账号名" />
         </view>
         <view class="field">
+          <text class="field-label">手机号</text>
+          <input class="input" type="number" value="{{createPhone}}" data-field="createPhone" bindinput="bindInput" placeholder="用于检查是否已注册" />
+        </view>
+        <view class="field">
           <text class="field-label">密码</text>
           <input class="input" password value="{{createPassword}}" data-field="createPassword" bindinput="bindInput" placeholder="至少 6 位" />
+        </view>
+        <view class="field">
+          <text class="field-label">验证码</text>
+          <view class="captcha-row">
+            <input class="input captcha-input" value="{{createCaptchaCode}}" data-field="createCaptchaCode" bindinput="bindInput" placeholder="输入模拟验证码" />
+            <button class="secondary-button captcha-button" loading="{{submitting}}" bindtap="requestCreateCaptcha">获取</button>
+          </view>
         </view>
         <button class="primary-button" loading="{{submitting}}" bindtap="createPaperAccount">创建并登录</button>
       </block>

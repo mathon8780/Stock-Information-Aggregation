@@ -14,23 +14,33 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.database import SessionLocal, get_db
-from app.models import CollectionJob, KlineDaily, KlineIntraday, MarketSnapshot, News, Notification, Stock, TradingAdvice, WatchSnapshot, Watchlist
-from app.schemas import AddWatchRequest, NewsLlmConfigRequest, PaperAccountRequest, PaperLoginRequest, PaperOrderRequest, UpdateWatchRequest
+from app.models import CollectionJob, KlineDaily, KlineIntraday, MarketSnapshot, News, Notification, PaperWatchlist, Stock, TradingAdvice, WatchSnapshot, Watchlist
+from app.schemas import AddWatchRequest, NewsLlmConfigRequest, PaperAccountRequest, PaperAdminAccountUpdateRequest, PaperAdminLoginRequest, PaperCaptchaRequest, PaperLoginRequest, PaperOrderRequest, UpdateWatchRequest
 from app.services.analysis_service import DISCLAIMER, analyze_stock, analyze_watchlist
 from app.services.event_bus import publish_event, subscribe, unsubscribe
 from app.services.ingest_service import normalize_code, record_collection_job
 from app.services.news_auto_sync_service import trigger_news_simplification
 from app.services.news_llm_config_service import news_llm_config_dict, save_news_llm_config, validate_news_llm_config_status
 from app.services.paper_trading_service import (
+    admin_get_account,
+    admin_update_account_status,
+    admin_from_token,
     account_from_token,
     account_dict,
     cancel_order,
+    clear_all_accounts,
     create_account,
+    create_account_captcha,
+    list_accounts,
     list_cash_flows,
     list_orders,
     list_positions,
     list_trades,
+    login_admin,
     login_account,
+    paper_equity,
+    paper_admin_overview,
+    paper_quote,
     performance_by_stock,
     performance_calendar,
     performance_summary,
@@ -38,12 +48,13 @@ from app.services.paper_trading_service import (
     portfolio_summary,
     record_risk_notification,
     reset_account,
+    revoke_admin_session,
     revoke_session,
     run_matching,
 )
 from app.services.news_collector_service import NewsCollector
 from app.services.real_collector_service import AkshareCollector, DEFAULT_WATCHLIST
-from app.services.serializers import advice_dict, intraday_kline_dict, job_dict, kline_dict, news_dict, notification_dict, snapshot_dict, stock_dict, watchlist_dict
+from app.services.serializers import advice_dict, intraday_kline_dict, job_dict, kline_dict, news_dict, notification_dict, paper_watchlist_dict, snapshot_dict, stock_dict, watchlist_dict
 from app.services.startup_sync_service import startup_sync_status
 from app.services.watch_stock_sync_service import enqueue_watch_stock_sync, run_watch_stock_sync_job
 
@@ -61,6 +72,10 @@ def _paper_token(authorization: str | None = Header(None)) -> str:
     if not authorization or not authorization.lower().startswith("bearer "):
         raise HTTPException(status_code=401, detail="请先登录模拟交易账户")
     return authorization.split(" ", 1)[1].strip()
+
+
+def _paper_admin(token: str = Depends(_paper_token)):
+    return admin_from_token(token)
 
 
 @router.get("/health")
@@ -92,7 +107,7 @@ async def events(request: Request) -> StreamingResponse:
 
 
 def _sse(event: dict[str, Any]) -> str:
-    return f"event: {event.get('type', 'message')}\ndata: {json.dumps(event, ensure_ascii=False)}\n\n"
+    return f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
 
 
 @router.get("/settings")
@@ -174,7 +189,17 @@ def validate_news_llm_config(db: Session = Depends(get_db)) -> dict[str, Any]:
 
 @router.post("/paper/accounts")
 def create_paper_account(request: PaperAccountRequest, db: Session = Depends(get_db)) -> dict[str, Any]:
-    return create_account(db, request.owner_name, request.password)
+    return create_account(db, request.owner_name, request.password, request.phone, request.captcha_id, request.captcha_code)
+
+
+@router.post("/paper/account-captchas")
+def create_paper_account_captcha(request: PaperCaptchaRequest, db: Session = Depends(get_db)) -> dict[str, Any]:
+    return create_account_captcha(db, request.phone)
+
+
+@router.get("/paper/accounts")
+def list_paper_accounts(db: Session = Depends(get_db)) -> dict[str, Any]:
+    return list_accounts(db)
 
 
 @router.post("/paper/sessions")
@@ -185,6 +210,55 @@ def create_paper_session(request: PaperLoginRequest, db: Session = Depends(get_d
 @router.delete("/paper/sessions/current")
 def delete_paper_session(token: str = Depends(_paper_token), db: Session = Depends(get_db)) -> dict[str, str]:
     return revoke_session(db, token)
+
+
+@router.post("/paper/admin/sessions")
+def create_paper_admin_session(request: PaperAdminLoginRequest) -> dict[str, Any]:
+    return login_admin(request.username, request.password)
+
+
+@router.delete("/paper/admin/sessions/current")
+def delete_paper_admin_session(token: str = Depends(_paper_token)) -> dict[str, str]:
+    return revoke_admin_session(token)
+
+
+@router.get("/paper/admin/overview")
+def get_paper_admin_overview(
+    account_id: int | None = Query(None, ge=1),
+    flow_type: str | None = None,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(100, ge=1, le=500),
+    _admin=Depends(_paper_admin),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    return paper_admin_overview(db, account_id=account_id, flow_type=flow_type, page=page, page_size=page_size)
+
+
+@router.patch("/paper/admin/accounts/{account_id}")
+def update_paper_admin_account(
+    account_id: int,
+    request: PaperAdminAccountUpdateRequest,
+    _admin=Depends(_paper_admin),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    account = admin_update_account_status(db, account_id, request.status)
+    publish_event("paper_admin.account.updated", {"account_id": account_id, "status": request.status})
+    return account
+
+
+@router.post("/paper/admin/accounts/{account_id}/reset")
+def reset_paper_admin_account(account_id: int, _admin=Depends(_paper_admin), db: Session = Depends(get_db)) -> dict[str, Any]:
+    account = admin_get_account(db, account_id)
+    summary = reset_account(db, account)
+    publish_event("paper_account.reset", {"account_id": account_id, "source": "admin"})
+    return summary
+
+
+@router.delete("/paper/admin/accounts")
+def delete_all_paper_accounts(_admin=Depends(_paper_admin), db: Session = Depends(get_db)) -> dict[str, Any]:
+    result = clear_all_accounts(db)
+    publish_event("paper_accounts.cleared", result["deleted"])
+    return result
 
 
 @router.get("/paper/account")
@@ -210,6 +284,16 @@ def get_paper_performance_by_stock(account=Depends(_paper_account), db: Session 
 @router.get("/paper/performance/calendar")
 def get_paper_performance_calendar(limit: int = Query(30, ge=1, le=365), account=Depends(_paper_account), db: Session = Depends(get_db)) -> dict[str, Any]:
     return performance_calendar(db, account, limit)
+
+
+@router.get("/paper/equity")
+def get_paper_equity(account=Depends(_paper_account), db: Session = Depends(get_db)) -> dict[str, Any]:
+    return paper_equity(db, account)
+
+
+@router.get("/paper/quote")
+def get_paper_quote(code: str = Query(..., min_length=1), account=Depends(_paper_account), db: Session = Depends(get_db)) -> dict[str, Any]:
+    return paper_quote(db, code)
 
 
 @router.post("/paper/account/reset")
@@ -283,6 +367,70 @@ def run_paper_matching(account=Depends(_paper_account), db: Session = Depends(ge
     if result["filled"] or result["triggered"]:
         publish_event("paper_order.updated", {"account_id": account.id, **result})
     return result
+
+
+@router.get("/paper/watchlist")
+def get_paper_watchlist(account=Depends(_paper_account), db: Session = Depends(get_db)) -> dict[str, Any]:
+    rows = db.execute(
+        select(PaperWatchlist)
+        .join(Stock, PaperWatchlist.stock_id == Stock.id)
+        .where(PaperWatchlist.account_id == account.id)
+        .order_by(PaperWatchlist.display_order, Stock.code)
+    ).scalars().all()
+    items = []
+    for row in rows:
+        snapshot = _latest_snapshot(db, row.stock_id)
+        advice = _latest_advice(db, row.stock_id)
+        items.append(paper_watchlist_dict(row, snapshot_dict(snapshot, row.stock) if snapshot else None, advice_dict(advice, row.stock) if advice else None))
+    return {"items": items, "total": len(items), "max_size": settings.max_watchlist_size}
+
+
+@router.post("/paper/watchlist")
+def add_paper_watch(request: AddWatchRequest, background_tasks: BackgroundTasks, account=Depends(_paper_account), db: Session = Depends(get_db)) -> dict[str, Any]:
+    current_count = db.execute(select(func.count()).select_from(PaperWatchlist).where(PaperWatchlist.account_id == account.id)).scalar_one()
+    if current_count >= settings.max_watchlist_size:
+        raise HTTPException(status_code=400, detail="模拟账户自选股已达上限")
+    stock = _resolve_stock_for_watch(db, request.code)
+    existing = db.execute(select(PaperWatchlist).where(PaperWatchlist.account_id == account.id, PaperWatchlist.stock_id == stock.id)).scalar_one_or_none()
+    if existing is not None:
+        snapshot = _latest_snapshot(db, existing.stock_id)
+        advice = _latest_advice(db, existing.stock_id)
+        job = enqueue_watch_stock_sync(db, stock.code, reason="paper_watchlist_exists")
+        db.commit()
+        background_tasks.add_task(run_watch_stock_sync_job, job.id)
+        return {
+            "status": "exists",
+            "item": paper_watchlist_dict(existing, snapshot_dict(snapshot, existing.stock) if snapshot else None, advice_dict(advice, existing.stock) if advice else None),
+            "sync_status": "queued",
+            "sync_job_id": job.id,
+        }
+    row = PaperWatchlist(account_id=account.id, stock_id=stock.id, display_order=current_count + 1)
+    db.add(row)
+    job = enqueue_watch_stock_sync(db, stock.code, reason="paper_watchlist_add")
+    db.commit()
+    db.refresh(row)
+    background_tasks.add_task(run_watch_stock_sync_job, job.id)
+    publish_event("paper_watchlist.updated", {"account_id": account.id, "code": stock.code, "action": "created"})
+    snapshot = _latest_snapshot(db, row.stock_id)
+    advice = _latest_advice(db, row.stock_id)
+    return {
+        "status": "created",
+        "item": paper_watchlist_dict(row, snapshot_dict(snapshot, row.stock) if snapshot else None, advice_dict(advice, row.stock) if advice else None),
+        "sync_status": "queued",
+        "sync_job_id": job.id,
+    }
+
+
+@router.delete("/paper/watchlist/{code}")
+def delete_paper_watch(code: str, account=Depends(_paper_account), db: Session = Depends(get_db)) -> dict[str, Any]:
+    stock = _get_stock_or_404(db, code)
+    row = db.execute(select(PaperWatchlist).where(PaperWatchlist.account_id == account.id, PaperWatchlist.stock_id == stock.id)).scalar_one_or_none()
+    if row is None:
+        raise HTTPException(status_code=404, detail="模拟账户自选股不存在")
+    db.delete(row)
+    db.commit()
+    publish_event("paper_watchlist.updated", {"account_id": account.id, "code": stock.code, "action": "deleted"})
+    return {"status": "deleted", "code": stock.code}
 
 
 @router.get("/stocks")

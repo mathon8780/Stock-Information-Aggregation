@@ -1,4 +1,5 @@
 import { formatTime } from '../../../api/client';
+import type { PaperTradeMarker } from '../../paper-trading/paperTradingData';
 import type { ThemeMode } from '../../../theme/ThemeModeContext';
 import type { Advice, IntradayKline, Kline, Signal, Snapshot } from '../../../types';
 
@@ -9,11 +10,11 @@ export function createKlineOption(kline: Kline[], themeMode: ThemeMode = 'light'
   return createCandlestickOption(dates, candle, closes, themeMode);
 }
 
-export function createIntradayKlineOption(kline: IntradayKline[], themeMode: ThemeMode = 'light') {
+export function createIntradayKlineOption(kline: IntradayKline[], themeMode: ThemeMode = 'light', tradeMarkers: PaperTradeMarker[] = []) {
   const labels = kline.map((item) => formatTime(item.bar_time).slice(5, 16));
   const candle = kline.map((item) => [item.open, item.close, item.low, item.high]);
   const closes = kline.map((item) => item.close);
-  return createCandlestickOption(labels, candle, closes, themeMode);
+  return createCandlestickOption(labels, candle, closes, themeMode, tradeMarkers);
 }
 
 function chartPalette(themeMode: ThemeMode) {
@@ -46,20 +47,33 @@ const strengthLabel: Record<number, Signal> = {
   [-2]: '回避',
 };
 
-function createCandlestickOption(labels: string[], candle: number[][], closes: number[], themeMode: ThemeMode) {
+function createCandlestickOption(labels: string[], candle: number[][], closes: number[], themeMode: ThemeMode, tradeMarkers: PaperTradeMarker[] = []) {
   const ma = (windowSize: number) => closes.map((_, index) => {
     const sample = closes.slice(Math.max(0, index - windowSize + 1), index + 1);
     return Number((sample.reduce((sum, value) => sum + value, 0) / sample.length).toFixed(2));
   });
 
   const palette = chartPalette(themeMode);
+  const buyMarkers = tradeMarkers.filter((marker) => marker.side === 'buy').map((marker) => ({
+    value: [marker.barIndex, marker.price],
+    quantity: marker.quantity,
+    amount: marker.amount,
+    tradeTime: marker.tradeTime,
+  }));
+  const sellMarkers = tradeMarkers.filter((marker) => marker.side === 'sell').map((marker) => ({
+    value: [marker.barIndex, marker.price],
+    quantity: marker.quantity,
+    amount: marker.amount,
+    tradeTime: marker.tradeTime,
+  }));
+  const markerLegend = tradeMarkers.length ? ['买入', '卖出'] : [];
 
   return {
     animation: false,
     backgroundColor: palette.background,
     color: ['#0f766e', '#2563eb', '#d97706', '#8b5cf6'],
-    tooltip: { trigger: 'axis' },
-    legend: { data: ['K线', 'MA5', 'MA20', 'MA60'], top: 0, textStyle: { color: palette.text } },
+    tooltip: { trigger: 'axis', confine: true },
+    legend: { data: ['K线', 'MA5', 'MA20', 'MA60', ...markerLegend], top: 0, textStyle: { color: palette.text } },
     grid: { left: 48, right: 24, top: 42, bottom: 42 },
     xAxis: { type: 'category', data: labels, boundaryGap: true, axisLine: { lineStyle: { color: palette.axis } }, axisLabel: { color: palette.text } },
     yAxis: { scale: true, axisLabel: { color: palette.text }, splitLine: { lineStyle: { color: palette.split } } },
@@ -69,6 +83,27 @@ function createCandlestickOption(labels: string[], candle: number[][], closes: n
       { name: 'MA5', type: 'line', data: ma(5), smooth: true, symbol: 'none' },
       { name: 'MA20', type: 'line', data: ma(20), smooth: true, symbol: 'none' },
       { name: 'MA60', type: 'line', data: ma(60), smooth: true, symbol: 'none' },
+      ...(buyMarkers.length ? [{
+        name: '买入',
+        type: 'scatter',
+        data: buyMarkers,
+        symbol: 'triangle',
+        symbolSize: 14,
+        symbolOffset: [0, -12],
+        itemStyle: { color: '#dc2626', borderColor: '#ffffff', borderWidth: 1 },
+        z: 8,
+      }] : []),
+      ...(sellMarkers.length ? [{
+        name: '卖出',
+        type: 'scatter',
+        data: sellMarkers,
+        symbol: 'triangle',
+        symbolRotate: 180,
+        symbolSize: 14,
+        symbolOffset: [0, 12],
+        itemStyle: { color: '#16a34a', borderColor: '#ffffff', borderWidth: 1 },
+        z: 8,
+      }] : []),
     ],
   };
 }

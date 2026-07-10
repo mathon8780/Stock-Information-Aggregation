@@ -20,6 +20,7 @@ const router = createBrowserRouter([
       { path: 'news', element: <News /> },
       { path: 'advice', element: <Advice /> },
       { path: 'paper-trading', element: <PaperTrading /> },
+      { path: 'paper-admin', element: <Navigate to="/paper-trading" replace /> },
       { path: 'settings', element: <Settings /> },
       { path: 'notifications', element: <Notifications /> },
       { path: '*', element: <Navigate to="/" replace /> },

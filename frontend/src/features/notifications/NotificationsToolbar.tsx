@@ -24,6 +24,9 @@ export default function NotificationsToolbar({
             { label: '行情异动', value: 'price_alert' },
             { label: '新闻摘要', value: 'news_digest' },
             { label: '重大事件', value: 'major_event' },
+            { label: '模拟成交', value: 'paper_trade' },
+            { label: '模拟委托', value: 'paper_order' },
+            { label: '模拟风控', value: 'paper_risk' },
           ]}
         />
         <Button onClick={onApply}>应用筛选</Button>

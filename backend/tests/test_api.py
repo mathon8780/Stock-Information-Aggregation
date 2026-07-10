@@ -1,6 +1,8 @@
 import asyncio
 import os
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timezone
+from threading import Event
 
 os.environ["DATABASE_URL"] = "sqlite:///./data/test_market_agent.db"
 os.environ["AUTO_SEED_DEMO_DATA"] = "false"
@@ -15,8 +17,8 @@ from sqlalchemy import event
 from app.api import router as api_router
 from app.main import app
 from app.database import Base, SessionLocal, engine
-from app.models import CollectionJob, KlineDaily, KlineIntraday, News, Notification, Stock, TradingAdvice, Watchlist
-from app.services import news_auto_sync_service, real_collector_service, watch_stock_sync_service
+from app.models import CollectionJob, KlineDaily, KlineIntraday, News, Notification, PaperAccount, PaperWatchlist, Stock, TradingAdvice, Watchlist
+from app.services import ingest_service, news_auto_sync_service, real_collector_service, watch_stock_sync_service
 from app.services.event_bus import publish_event, subscribe, unsubscribe
 from app.services.news_collector_service import NewsCollector, OpenAICompatibleNewsFormatter
 from app.services.push_message_service import render_notification_markdown
@@ -266,6 +268,88 @@ def test_event_bus_delivers_events():
     asyncio.run(run())
 
 
+def test_sse_uses_default_message_frame_for_frontend_onmessage():
+    frame = api_router._sse({"type": "paper_watchlist.updated", "payload": {"code": "000001.SZ"}})
+
+    assert frame.startswith("data: ")
+    assert "event:" not in frame
+    assert '"type": "paper_watchlist.updated"' in frame
+
+
+def test_watch_stock_sync_jobs_wait_for_each_other_instead_of_being_skipped(monkeypatch):
+    Base.metadata.drop_all(bind=engine)
+    Base.metadata.create_all(bind=engine)
+    with SessionLocal() as db:
+        first = CollectionJob(
+            job_type="watch_stock_sync",
+            status="pending",
+            source="backend",
+            requested_payload={"code": "000001.SZ", "reason": "paper_watchlist_add"},
+            result_summary={},
+            started_at=datetime.now(timezone.utc),
+        )
+        second = CollectionJob(
+            job_type="watch_stock_sync",
+            status="pending",
+            source="backend",
+            requested_payload={"code": "000002.SZ", "reason": "paper_watchlist_add"},
+            result_summary={},
+            started_at=datetime.now(timezone.utc),
+        )
+        db.add_all([first, second])
+        db.commit()
+        first_id, second_id = first.id, second.id
+
+    first_started = Event()
+    release_first = Event()
+    collected_codes: list[str] = []
+
+    def fake_sync(code: str) -> dict:
+        collected_codes.append(code)
+        if code == "000001.SZ":
+            first_started.set()
+            assert release_first.wait(timeout=2)
+        return {"intraday_1m": {"status": "success", "result": {"code": code}}}
+
+    monkeypatch.setattr(watch_stock_sync_service, "sync_watch_stock_data", fake_sync)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        first_future = executor.submit(watch_stock_sync_service.run_watch_stock_sync_job, first_id)
+        assert first_started.wait(timeout=2)
+        second_future = executor.submit(watch_stock_sync_service.run_watch_stock_sync_job, second_id)
+        release_first.set()
+        results = [first_future.result(timeout=3), second_future.result(timeout=3)]
+
+    assert [result["status"] for result in results] == ["success", "success"]
+    assert collected_codes == ["000001.SZ", "000002.SZ"]
+
+
+def test_watch_stock_sync_does_not_rerun_terminal_job(monkeypatch):
+    Base.metadata.drop_all(bind=engine)
+    Base.metadata.create_all(bind=engine)
+    with SessionLocal() as db:
+        job = CollectionJob(
+            job_type="watch_stock_sync",
+            status="success",
+            source="backend",
+            requested_payload={"code": "000001.SZ", "reason": "paper_watchlist_add"},
+            result_summary={"code": "000001.SZ", "steps": {}},
+            started_at=datetime.now(timezone.utc),
+            finished_at=datetime.now(timezone.utc),
+        )
+        db.add(job)
+        db.commit()
+        job_id = job.id
+
+    collected_codes: list[str] = []
+    monkeypatch.setattr(watch_stock_sync_service, "sync_watch_stock_data", lambda code: collected_codes.append(code) or {})
+
+    result = watch_stock_sync_service.run_watch_stock_sync_job(job_id)
+
+    assert result == {"job_id": job_id, "code": "000001.SZ", "status": "success", "reason": "already_finished"}
+    assert collected_codes == []
+
+
 def test_trigger_analysis_for_real_watch_stock(monkeypatch):
     monkeypatch.setattr(api_router, "AkshareCollector", lambda: AkshareCollector(FakeAkshare(), sleep_fn=lambda _: None))
     with TestClient(app) as client:
@@ -331,8 +415,103 @@ def test_add_watch_resolves_missing_stock_and_syncs_required_data(monkeypatch):
         assert db.query(CollectionJob).filter(CollectionJob.job_type == "watch_stock_sync").order_by(CollectionJob.id.desc()).first().status == "success"
 
 
+def test_add_paper_watch_queues_attention_sync_without_dashboard_watchlist(monkeypatch):
+    Base.metadata.drop_all(bind=engine)
+    Base.metadata.create_all(bind=engine)
+    published_events: list[tuple[str, dict]] = []
+    monkeypatch.setattr(watch_stock_sync_service, "AkshareCollector", lambda: AkshareCollector(FakeAkshare(), sleep_fn=lambda _: None, backoff_seconds=[]))
+    monkeypatch.setattr(watch_stock_sync_service, "publish_event", lambda event_type, payload=None: published_events.append((event_type, payload or {})))
+    monkeypatch.setattr(real_collector_service, "_intraday_window", lambda trading_days: (datetime(2026, 5, 1, 9, 30), datetime(2026, 5, 12, 15, 0)))
+
+    with SessionLocal() as db:
+        db.add(Stock(code="300502.SZ", name="新易盛", market="SZ", security_type="stock", industry="CPO/光模块"))
+        db.commit()
+
+    with TestClient(app) as client:
+        captcha = client.post("/api/v1/paper/account-captchas", json={"phone": "13910000001"})
+        assert captcha.status_code == 200
+        created = client.post(
+            "/api/v1/paper/accounts",
+            json={
+                "owner_name": "paper-demo",
+                "password": "secret123",
+                "phone": captcha.json()["phone"],
+                "captcha_id": captcha.json()["captcha_id"],
+                "captcha_code": captcha.json()["captcha_code"],
+            },
+        )
+        assert created.status_code == 200
+        login = client.post("/api/v1/paper/sessions", json={"owner_name": "paper-demo", "password": "secret123"})
+        assert login.status_code == 200
+        token = login.json()["token"]
+
+        response = client.post("/api/v1/paper/watchlist", headers={"Authorization": f"Bearer {token}"}, json={"code": "300502.SZ"})
+        assert response.status_code == 200
+        body = response.json()
+        assert body["status"] == "created"
+        assert body["sync_status"] == "queued"
+
+        dashboard_watchlist = client.get("/api/v1/watchlist")
+        assert dashboard_watchlist.status_code == 200
+        assert dashboard_watchlist.json()["total"] == 0
+
+    with SessionLocal() as db:
+        stock = db.query(Stock).filter(Stock.code == "300502.SZ").one()
+        assert db.query(Watchlist).filter(Watchlist.stock_id == stock.id).count() == 0
+        assert db.query(PaperWatchlist).filter(PaperWatchlist.stock_id == stock.id).count() == 1
+        assert db.query(KlineDaily).filter(KlineDaily.stock_id == stock.id).count() == 30
+        assert db.query(KlineIntraday).filter(KlineIntraday.stock_id == stock.id, KlineIntraday.period_minutes == 1).count() == 2
+        assert db.query(KlineIntraday).filter(KlineIntraday.stock_id == stock.id, KlineIntraday.period_minutes == 5).count() == 20
+        job = db.query(CollectionJob).filter(CollectionJob.job_type == "watch_stock_sync").order_by(CollectionJob.id.desc()).first()
+        assert job is not None
+        assert job.status == "success"
+        steps = job.result_summary["steps"]
+        assert steps["daily_kline"]["result"]["days"] == 365
+        assert steps["intraday_1m"]["result"]["trading_days"] == 1
+        assert steps["intraday_1m"]["result"]["period_minutes"] == 1
+        assert steps["intraday_watch_period"]["result"]["trading_days"] == 10
+        assert steps["intraday_watch_period"]["result"]["period_minutes"] == 5
+        assert any(
+            event_type == "paper_watchlist.updated"
+            and payload.get("code") == "300502.SZ"
+            and payload.get("action") == "synced"
+            and payload.get("status") == "success"
+            for event_type, payload in published_events
+        )
+
+
+def test_batch_collectors_treat_paper_watchlist_as_attention_targets(monkeypatch):
+    Base.metadata.drop_all(bind=engine)
+    Base.metadata.create_all(bind=engine)
+    monkeypatch.setattr(real_collector_service, "_intraday_window", lambda trading_days: (datetime(2026, 5, 1, 9, 30), datetime(2026, 5, 12, 15, 0)))
+
+    with SessionLocal() as db:
+        stock = Stock(code="300502.SZ", name="新易盛", market="SZ", security_type="stock", industry="CPO/光模块")
+        account = PaperAccount(owner_name="paper-demo", password_hash="test")
+        db.add_all([stock, account])
+        db.flush()
+        db.add(PaperWatchlist(account_id=account.id, stock_id=stock.id, display_order=1))
+        db.commit()
+
+    with TestClient(app) as client:
+        dashboard_watchlist = client.get("/api/v1/watchlist")
+        assert dashboard_watchlist.status_code == 200
+        assert dashboard_watchlist.json()["total"] == 0
+
+    collector = AkshareCollector(FakeAkshare(), sleep_fn=lambda _: None)
+    with SessionLocal() as db:
+        history = collector.collect_history(db, days=365)
+        intraday = collector.collect_intraday(db, trading_days=10, period_minutes=5)
+        stock = db.query(Stock).filter(Stock.code == "300502.SZ").one()
+        assert history["inserted"] >= 30
+        assert intraday["inserted"] == 20
+        assert db.query(KlineDaily).filter(KlineDaily.stock_id == stock.id).count() == 30
+        assert db.query(KlineIntraday).filter(KlineIntraday.stock_id == stock.id, KlineIntraday.period_minutes == 5).count() == 20
+
+
 def test_remove_watch_keeps_collected_kline_data(monkeypatch):
     monkeypatch.setattr(api_router, "AkshareCollector", lambda: AkshareCollector(FakeAkshare(), sleep_fn=lambda _: None, backoff_seconds=[]))
+    monkeypatch.setattr(real_collector_service, "_intraday_window", lambda trading_days: (datetime(2026, 5, 1, 9, 30), datetime(2026, 5, 12, 15, 0)))
     with TestClient(app) as client:
         client.post("/api/v1/collector/real/bootstrap")
         client.post("/api/v1/collector/real/intraday")
@@ -355,6 +534,7 @@ def test_remove_watch_keeps_collected_kline_data(monkeypatch):
 
 def test_collect_and_query_watchlist_intraday_5m(monkeypatch):
     monkeypatch.setattr(api_router, "AkshareCollector", lambda: AkshareCollector(FakeAkshare(), sleep_fn=lambda _: None))
+    monkeypatch.setattr(real_collector_service, "_intraday_window", lambda trading_days: (datetime(2026, 5, 1, 9, 30), datetime(2026, 5, 12, 15, 0)))
     with TestClient(app) as client:
         client.post("/api/v1/collector/real/bootstrap")
         response = client.post("/api/v1/collector/real/intraday")
@@ -372,7 +552,10 @@ def test_collect_and_query_watchlist_intraday_5m(monkeypatch):
 
 
 def test_collect_single_stock_intraday_for_detail_page(monkeypatch):
+    published_events: list[tuple[str, dict]] = []
     monkeypatch.setattr(api_router, "AkshareCollector", lambda: AkshareCollector(FakeAkshare(), sleep_fn=lambda _: None))
+    monkeypatch.setattr(ingest_service, "publish_event", lambda event_type, payload=None: published_events.append((event_type, payload or {})))
+    monkeypatch.setattr(real_collector_service, "_intraday_window", lambda trading_days: (datetime(2026, 5, 1, 9, 30), datetime(2026, 5, 12, 15, 0)))
     with TestClient(app) as client:
         client.post("/api/v1/collector/real/bootstrap")
         response = client.post("/api/v1/collector/real/intraday/300308.SZ?period=1&trading_days=1")
@@ -388,6 +571,11 @@ def test_collect_single_stock_intraday_for_detail_page(monkeypatch):
 
         other = client.get("/api/v1/stocks/300502.SZ/intraday?period=1&days=1").json()
         assert other["total"] == 0
+
+        intraday_event = next(payload for event_type, payload in published_events if event_type == "intraday.updated")
+        assert intraday_event["code"] == "300308.SZ"
+        assert intraday_event["codes"] == ["300308.SZ"]
+        assert intraday_event["period_minutes"] == 1
 
 
 def test_collect_single_stock_daily_kline_for_detail_page(monkeypatch):

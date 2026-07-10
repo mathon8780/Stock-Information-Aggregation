@@ -4,7 +4,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
-from app.models import CollectionJob, KlineDaily, KlineIntraday, MarketSnapshot, News, Notification, Stock, TradingAdvice, WatchSnapshot, Watchlist
+from app.models import CollectionJob, KlineDaily, KlineIntraday, MarketSnapshot, News, Notification, PaperWatchlist, Stock, TradingAdvice, WatchSnapshot, Watchlist
 
 
 def scalar(value: Any) -> Any:
@@ -148,6 +148,17 @@ def watchlist_dict(row: Watchlist, latest_snapshot: dict[str, Any] | None, lates
         "alert_enabled": row.alert_enabled,
         "alert_threshold_pct": scalar(row.alert_threshold_pct),
         "strategy_push_enabled": row.strategy_push_enabled,
+        "added_at": scalar(row.added_at),
+        "latest_snapshot": latest_snapshot,
+        "latest_advice": latest_advice,
+    }
+
+
+def paper_watchlist_dict(row: PaperWatchlist, latest_snapshot: dict[str, Any] | None, latest_advice: dict[str, Any] | None) -> dict[str, Any]:
+    return {
+        "id": row.id,
+        "stock": stock_dict(row.stock),
+        "display_order": row.display_order,
         "added_at": scalar(row.added_at),
         "latest_snapshot": latest_snapshot,
         "latest_advice": latest_advice,

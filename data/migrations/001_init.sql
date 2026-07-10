@@ -176,3 +176,119 @@ CREATE TABLE IF NOT EXISTS notifications (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   sent_at TIMESTAMPTZ
 );
+
+CREATE TABLE IF NOT EXISTS paper_accounts (
+  id BIGSERIAL PRIMARY KEY,
+  owner_name VARCHAR(64) NOT NULL UNIQUE,
+  phone VARCHAR(20) UNIQUE,
+  password_hash TEXT NOT NULL,
+  initial_cash NUMERIC(18, 4) NOT NULL DEFAULT 500000.0000,
+  cash_balance NUMERIC(18, 4) NOT NULL DEFAULT 500000.0000 CHECK (cash_balance >= 0),
+  cash_available NUMERIC(18, 4) NOT NULL DEFAULT 500000.0000 CHECK (cash_available >= 0),
+  cash_frozen NUMERIC(18, 4) NOT NULL DEFAULT 0 CHECK (cash_frozen >= 0),
+  status VARCHAR(16) NOT NULL DEFAULT 'active',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_login_at TIMESTAMPTZ,
+  reset_at TIMESTAMPTZ
+);
+
+CREATE TABLE IF NOT EXISTS paper_watchlist (
+  id BIGSERIAL PRIMARY KEY,
+  account_id BIGINT NOT NULL REFERENCES paper_accounts(id),
+  stock_id BIGINT NOT NULL REFERENCES stocks(id),
+  display_order INTEGER NOT NULL DEFAULT 0,
+  added_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (account_id, stock_id)
+);
+
+CREATE TABLE IF NOT EXISTS paper_sessions (
+  id BIGSERIAL PRIMARY KEY,
+  account_id BIGINT NOT NULL REFERENCES paper_accounts(id),
+  token_hash VARCHAR(128) NOT NULL UNIQUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  expires_at TIMESTAMPTZ NOT NULL,
+  revoked_at TIMESTAMPTZ
+);
+
+CREATE TABLE IF NOT EXISTS paper_orders (
+  id BIGSERIAL PRIMARY KEY,
+  account_id BIGINT NOT NULL REFERENCES paper_accounts(id),
+  stock_id BIGINT NOT NULL REFERENCES stocks(id),
+  side VARCHAR(8) NOT NULL,
+  order_type VARCHAR(16) NOT NULL,
+  status VARCHAR(16) NOT NULL,
+  quantity INTEGER NOT NULL,
+  filled_quantity INTEGER NOT NULL DEFAULT 0,
+  limit_price NUMERIC(18, 4),
+  trigger_price NUMERIC(18, 4),
+  avg_fill_price NUMERIC(18, 4),
+  frozen_cash NUMERIC(18, 4) NOT NULL DEFAULT 0,
+  frozen_quantity INTEGER NOT NULL DEFAULT 0,
+  fee_total NUMERIC(18, 4) NOT NULL DEFAULT 0,
+  reject_reason TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  triggered_at TIMESTAMPTZ,
+  filled_at TIMESTAMPTZ,
+  cancelled_at TIMESTAMPTZ
+);
+
+CREATE TABLE IF NOT EXISTS paper_trades (
+  id BIGSERIAL PRIMARY KEY,
+  account_id BIGINT NOT NULL REFERENCES paper_accounts(id),
+  order_id BIGINT NOT NULL REFERENCES paper_orders(id),
+  stock_id BIGINT NOT NULL REFERENCES stocks(id),
+  side VARCHAR(8) NOT NULL,
+  quantity INTEGER NOT NULL,
+  price NUMERIC(18, 4) NOT NULL,
+  amount NUMERIC(18, 4) NOT NULL,
+  commission NUMERIC(18, 4) NOT NULL DEFAULT 0,
+  stamp_tax NUMERIC(18, 4) NOT NULL DEFAULT 0,
+  transfer_fee NUMERIC(18, 4) NOT NULL DEFAULT 0,
+  fee_total NUMERIC(18, 4) NOT NULL DEFAULT 0,
+  realized_pnl NUMERIC(18, 4),
+  trade_time TIMESTAMPTZ NOT NULL DEFAULT now(),
+  price_source VARCHAR(32) NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS paper_positions (
+  id BIGSERIAL PRIMARY KEY,
+  account_id BIGINT NOT NULL REFERENCES paper_accounts(id),
+  stock_id BIGINT NOT NULL REFERENCES stocks(id),
+  total_quantity INTEGER NOT NULL DEFAULT 0,
+  available_quantity INTEGER NOT NULL DEFAULT 0,
+  today_buy_quantity INTEGER NOT NULL DEFAULT 0,
+  frozen_quantity INTEGER NOT NULL DEFAULT 0,
+  avg_cost NUMERIC(18, 4) NOT NULL DEFAULT 0,
+  cost_amount NUMERIC(18, 4) NOT NULL DEFAULT 0,
+  realized_pnl NUMERIC(18, 4) NOT NULL DEFAULT 0,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (account_id, stock_id)
+);
+
+CREATE TABLE IF NOT EXISTS paper_cash_flows (
+  id BIGSERIAL PRIMARY KEY,
+  account_id BIGINT NOT NULL REFERENCES paper_accounts(id),
+  order_id BIGINT REFERENCES paper_orders(id),
+  trade_id BIGINT REFERENCES paper_trades(id),
+  flow_type VARCHAR(32) NOT NULL,
+  amount NUMERIC(18, 4) NOT NULL,
+  cash_balance_after NUMERIC(18, 4) NOT NULL,
+  remark TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS paper_equity_snapshots (
+  id BIGSERIAL PRIMARY KEY,
+  account_id BIGINT NOT NULL REFERENCES paper_accounts(id),
+  snapshot_time TIMESTAMPTZ NOT NULL DEFAULT now(),
+  cash_balance NUMERIC(18, 4) NOT NULL,
+  cash_frozen NUMERIC(18, 4) NOT NULL,
+  position_market_value NUMERIC(18, 4) NOT NULL,
+  total_assets NUMERIC(18, 4) NOT NULL,
+  net_value NUMERIC(18, 8) NOT NULL,
+  daily_return_pct NUMERIC(10, 4),
+  benchmark_code VARCHAR(32),
+  benchmark_value NUMERIC(18, 8)
+);

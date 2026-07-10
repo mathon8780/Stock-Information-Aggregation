@@ -33,7 +33,7 @@ export function useBackendEvents(eventTypes: string[], callback: (event: Backend
       }, debounceMs);
     };
 
-    source.onmessage = (message) => {
+    const handleMessage = (message: MessageEvent) => {
       try {
         const event = JSON.parse(message.data) as BackendEvent;
         if (event.type === 'connected') return;
@@ -42,6 +42,14 @@ export function useBackendEvents(eventTypes: string[], callback: (event: Backend
         // Ignore malformed event frames. The browser will keep the stream open.
       }
     };
+    const eventListeners: Array<[string, EventListener]> = [];
+
+    source.onmessage = handleMessage;
+    eventTypes.forEach((eventType) => {
+      const listener = handleMessage as EventListener;
+      source.addEventListener(eventType, listener);
+      eventListeners.push([eventType, listener]);
+    });
 
     const onVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
@@ -53,6 +61,7 @@ export function useBackendEvents(eventTypes: string[], callback: (event: Backend
     return () => {
       if (timer !== undefined) window.clearTimeout(timer);
       document.removeEventListener('visibilitychange', onVisibilityChange);
+      eventListeners.forEach(([eventType, listener]) => source.removeEventListener(eventType, listener));
       source.close();
     };
   }, [debounceMs, typesKey]);

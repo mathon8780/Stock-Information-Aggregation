@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from app.analysis import calculate_indicators
 from app.config import settings
 from app.database import Base, engine, init_db
-from app.models import KlineDaily, Stock, Watchlist
+from app.models import KlineDaily, PaperWatchlist, Stock, Watchlist
 from app.services.analysis_service import analyze_watchlist
 from app.services.event_bus import publish_event
 from app.services.ingest_service import ingest_intraday_kline_payload, ingest_kline_payload, ingest_market_payload, record_collection_job
@@ -1065,9 +1065,26 @@ def _stock_target(stock: Stock) -> dict[str, str]:
     }
 
 
-def _watchlist_stock_targets(db: Session) -> list[dict[str, str]]:
+def _global_watchlist_stock_targets(db: Session) -> list[dict[str, str]]:
     rows = db.execute(select(Watchlist).join(Stock).order_by(Watchlist.display_order, Stock.code)).scalars().all()
     return [_stock_target(item.stock) for item in rows]
+
+
+def _paper_watchlist_stock_targets(db: Session) -> list[dict[str, str]]:
+    rows = (
+        db.execute(
+            select(PaperWatchlist)
+            .join(Stock, PaperWatchlist.stock_id == Stock.id)
+            .order_by(Stock.code, PaperWatchlist.account_id, PaperWatchlist.display_order)
+        )
+        .scalars()
+        .all()
+    )
+    return [_stock_target(item.stock) for item in rows]
+
+
+def _watchlist_stock_targets(db: Session) -> list[dict[str, str]]:
+    return _unique_targets([*_global_watchlist_stock_targets(db), *_paper_watchlist_stock_targets(db)])
 
 
 def _unique_targets(targets: list[dict[str, str]]) -> list[dict[str, str]]:

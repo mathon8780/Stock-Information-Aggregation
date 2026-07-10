@@ -31,7 +31,7 @@ export default function Notifications() {
     <>
       <PageHeader
         title="Notifications"
-        description="策略、新闻、重大事件和行情异动通知记录"
+        description="策略、新闻、重大事件、行情异动和模拟交易通知记录"
         extra={<Button icon={<ReloadOutlined />} onClick={() => load(true)}>刷新</Button>}
       />
       <Card className="data-surface">

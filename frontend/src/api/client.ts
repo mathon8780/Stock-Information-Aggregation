@@ -1,4 +1,4 @@
-import type { Advice, CollectionJob, CollectorStartResult, IntradayKline, Kline, NewsItem, NewsLlmConfig, NewsLlmConfigPayload, NewsLlmKeyStatus, NotificationItem, Paged, PaperAccount, PaperCashFlow, PaperOrder, PaperPerformanceCalendarDay, PaperPerformanceSummary, PaperPosition, PaperStockPerformance, PaperSummary, PaperTrade, Snapshot, Stock, WatchItem } from '../types';
+import type { Advice, CollectionJob, CollectorStartResult, IntradayKline, Kline, NewsItem, NewsLlmConfig, NewsLlmConfigPayload, NewsLlmKeyStatus, NotificationItem, Paged, PaperAccount, PaperAccountCaptcha, PaperAdminOverview, PaperAdminSession, PaperCashFlow, PaperEquityPoint, PaperOrder, PaperPerformanceCalendarDay, PaperPerformanceSummary, PaperPosition, PaperQuote, PaperStockPerformance, PaperSummary, PaperTrade, PaperWatchItem, Snapshot, Stock, WatchItem } from '../types';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000/api/v1';
 
@@ -13,7 +13,10 @@ export class ApiError extends Error {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${path}`, { headers: { 'Content-Type': 'application/json', ...(init?.headers ?? {}) }, ...init });
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    ...init,
+    headers: { 'Content-Type': 'application/json', ...(init?.headers ?? {}) },
+  });
   if (!response.ok) {
     const text = await response.text();
     let message = text || `HTTP ${response.status}`;
@@ -70,14 +73,34 @@ export const api = {
   jobs: (limit = 50) => request<Paged<CollectionJob>>(`/collection-jobs?limit=${limit}`),
   notifications: (notificationType?: string) =>
     request<Paged<NotificationItem>>(`/notifications?limit=100${notificationType ? `&notification_type=${encodeURIComponent(notificationType)}` : ''}`),
-  createPaperAccount: (payload: { owner_name: string; password: string }) => request<PaperAccount>('/paper/accounts', { method: 'POST', body: JSON.stringify(payload) }),
+  paperAccounts: () => request<Paged<PaperAccount>>('/paper/accounts'),
+  createPaperAccountCaptcha: (payload: { phone: string }) => request<PaperAccountCaptcha>('/paper/account-captchas', { method: 'POST', body: JSON.stringify(payload) }),
+  createPaperAccount: (payload: { owner_name: string; password: string; phone: string; captcha_id: string; captcha_code: string }) => request<PaperAccount>('/paper/accounts', { method: 'POST', body: JSON.stringify(payload) }),
   loginPaperAccount: (payload: { owner_name: string; password: string }) => request<{ token: string; account: PaperAccount }>('/paper/sessions', { method: 'POST', body: JSON.stringify(payload) }),
   logoutPaperAccount: (token: string) => request<{ status: string }>('/paper/sessions/current', { method: 'DELETE', headers: paperAuth(token) }),
+  loginPaperAdmin: (payload: { username: string; password: string }) => request<PaperAdminSession>('/paper/admin/sessions', { method: 'POST', body: JSON.stringify(payload) }),
+  logoutPaperAdmin: (token: string) => request<{ status: string }>('/paper/admin/sessions/current', { method: 'DELETE', headers: paperAuth(token) }),
+  paperAdminOverview: (token: string, filters: { account_id?: number; flow_type?: string; page?: number; page_size?: number } = {}) => {
+    const params = new URLSearchParams({ page: String(filters.page ?? 1), page_size: String(filters.page_size ?? 100) });
+    if (filters.account_id) params.set('account_id', String(filters.account_id));
+    if (filters.flow_type) params.set('flow_type', filters.flow_type);
+    return request<PaperAdminOverview>(`/paper/admin/overview?${params.toString()}`, { headers: paperAuth(token) });
+  },
+  updatePaperAdminAccount: (token: string, accountId: number, payload: { status: 'active' | 'suspended' }) =>
+    request<PaperAccount>(`/paper/admin/accounts/${accountId}`, { method: 'PATCH', headers: paperAuth(token), body: JSON.stringify(payload) }),
+  resetPaperAdminAccount: (token: string, accountId: number) =>
+    request<PaperSummary>(`/paper/admin/accounts/${accountId}/reset`, { method: 'POST', headers: paperAuth(token) }),
+  clearPaperAdminAccounts: (token: string) => request<{ status: string; deleted: Record<string, number> }>('/paper/admin/accounts', { method: 'DELETE', headers: paperAuth(token) }),
   paperAccount: (token: string) => request<PaperAccount>('/paper/account', { headers: paperAuth(token) }),
   paperSummary: (token: string) => request<PaperSummary>('/paper/summary', { headers: paperAuth(token) }),
   paperPerformanceSummary: (token: string) => request<PaperPerformanceSummary>('/paper/performance/summary', { headers: paperAuth(token) }),
   paperPerformanceByStock: (token: string) => request<Paged<PaperStockPerformance>>('/paper/performance/by-stock', { headers: paperAuth(token) }),
   paperPerformanceCalendar: (token: string, limit = 30) => request<Paged<PaperPerformanceCalendarDay>>(`/paper/performance/calendar?limit=${limit}`, { headers: paperAuth(token) }),
+  paperEquity: (token: string) => request<Paged<PaperEquityPoint>>('/paper/equity', { headers: paperAuth(token) }),
+  paperQuote: (token: string, code: string) => request<PaperQuote>(`/paper/quote?code=${encodeURIComponent(code)}`, { headers: paperAuth(token) }),
+  paperWatchlist: (token: string) => request<Paged<PaperWatchItem> & { max_size: number }>('/paper/watchlist', { headers: paperAuth(token) }),
+  addPaperWatch: (token: string, code: string) => request<{ status: 'created' | 'exists'; item: PaperWatchItem }>('/paper/watchlist', { method: 'POST', headers: paperAuth(token), body: JSON.stringify({ code }) }),
+  removePaperWatch: (token: string, code: string) => request<{ status: string; code: string }>(`/paper/watchlist/${encodeURIComponent(code)}`, { method: 'DELETE', headers: paperAuth(token) }),
   resetPaperAccount: (token: string) => request<PaperSummary>('/paper/account/reset', { method: 'POST', headers: paperAuth(token) }),
   paperPositions: (token: string) => request<Paged<PaperPosition>>('/paper/positions', { headers: paperAuth(token) }),
   paperOrders: (token: string, filters: { code?: string; side?: string; order_type?: string; status?: string } = {}) => {

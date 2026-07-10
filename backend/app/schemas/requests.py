@@ -30,11 +30,27 @@ class NewsLlmConfigRequest(BaseModel):
 class PaperAccountRequest(BaseModel):
     owner_name: str = Field(..., min_length=2, max_length=64)
     password: str = Field(..., min_length=6, max_length=128)
+    phone: str = Field(..., min_length=1, max_length=32)
+    captcha_id: str = Field(..., min_length=1, max_length=128)
+    captcha_code: str = Field(..., min_length=1, max_length=16)
+
+
+class PaperCaptchaRequest(BaseModel):
+    phone: str = Field(..., min_length=1, max_length=32)
 
 
 class PaperLoginRequest(BaseModel):
     owner_name: str = Field(..., min_length=2, max_length=64)
     password: str = Field(..., min_length=6, max_length=128)
+
+
+class PaperAdminLoginRequest(BaseModel):
+    username: str = Field(..., min_length=1, max_length=64)
+    password: str = Field(..., min_length=6, max_length=128)
+
+
+class PaperAdminAccountUpdateRequest(BaseModel):
+    status: str = Field(..., pattern="^(active|suspended)$")
 
 
 class PaperOrderRequest(BaseModel):

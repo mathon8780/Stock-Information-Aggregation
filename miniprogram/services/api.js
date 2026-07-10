@@ -112,6 +112,9 @@ const api = {
   collectStockIntraday(code, period = 1, tradingDays = 1) {
     return request(`/collector/real/intraday/${encodeURIComponent(code)}${buildQuery({ period, trading_days: tradingDays })}`, { method: 'POST' });
   },
+  createPaperAccountCaptcha(payload) {
+    return request('/paper/account-captchas', { method: 'POST', data: payload });
+  },
   createPaperAccount(payload) {
     return request('/paper/accounts', { method: 'POST', data: payload });
   },

@@ -111,6 +111,16 @@ def record_collection_job(
     return _record_job(db, job_type, source, status, result_summary, requested_payload, error_message)
 
 
+def _with_affected_codes(summary: dict[str, Any], codes: set[str]) -> dict[str, Any]:
+    if not codes:
+        return summary
+    sorted_codes = sorted(codes)
+    summary["codes"] = sorted_codes
+    if len(sorted_codes) == 1:
+        summary["code"] = sorted_codes[0]
+    return summary
+
+
 SNAPSHOT_FIELDS = {"price", "change_pct", "change_amount", "amount", "open", "high", "low", "amplitude", "turnover_rate", "volume_ratio", "pe", "pb", "total_mv", "circ_mv"}
 
 
@@ -119,8 +129,10 @@ def ingest_market_payload(db: Session, payload: dict[str, Any], watch_only: bool
     source = payload.get("source", "akshare")
     fetched_at = parse_datetime(payload.get("fetched_at"))
     inserted_market = inserted_watch = skipped = 0
+    affected_codes: set[str] = set()
     for item in items:
         stock = get_or_create_stock(db, item)
+        affected_codes.add(stock.code)
         key = item.get("idempotency_key") or f"market:{stock.code}:{fetched_at.isoformat()}"
         existing = db.execute(select(MarketSnapshot).where(MarketSnapshot.idempotency_key == key)).scalar_one_or_none()
         market_snapshot = existing
@@ -143,7 +155,7 @@ def ingest_market_payload(db: Session, payload: dict[str, Any], watch_only: bool
             else:
                 skipped += 1
     failed_items = payload.get("failed_items") or []
-    summary = {"inserted_market": inserted_market, "inserted_watch": inserted_watch, "skipped": skipped, "failed": len(failed_items)}
+    summary = _with_affected_codes({"inserted_market": inserted_market, "inserted_watch": inserted_watch, "skipped": skipped, "failed": len(failed_items)}, affected_codes)
     requested_payload: dict[str, Any] = {"count": len(items)}
     if failed_items:
         requested_payload["failed_items"] = failed_items[:20]
@@ -168,8 +180,10 @@ def ingest_kline_payload(db: Session, payload: dict[str, Any]) -> dict[str, Any]
     items = payload.get("items") or []
     source = payload.get("source", "akshare")
     inserted = updated = 0
+    affected_codes: set[str] = set()
     for item in items:
         stock = get_or_create_stock(db, item)
+        affected_codes.add(stock.code)
         trade_date = parse_date(item.get("trade_date"))
         row = db.get(KlineDaily, {"stock_id": stock.id, "trade_date": trade_date})
         values = {
@@ -191,7 +205,7 @@ def ingest_kline_payload(db: Session, payload: dict[str, Any]) -> dict[str, Any]
             for field, value in values.items():
                 setattr(row, field, value)
             updated += 1
-    summary = {"inserted": inserted, "updated": updated, "failed": len(payload.get("failed_items") or [])}
+    summary = _with_affected_codes({"inserted": inserted, "updated": updated, "failed": len(payload.get("failed_items") or [])}, affected_codes)
     _record_job(db, payload.get("job_type", "daily_kline"), source, "success", summary, {"count": len(items)})
     db.commit()
     publish_event("kline.updated", summary)
@@ -203,9 +217,11 @@ def ingest_intraday_kline_payload(db: Session, payload: dict[str, Any]) -> dict[
     items = payload.get("items") or []
     source = payload.get("source", "akshare")
     inserted = updated = 0
+    affected_codes: set[str] = set()
     pending_keys: set[tuple[int, int, datetime]] = set()
     for item in items:
         stock = get_or_create_stock(db, item)
+        affected_codes.add(stock.code)
         bar_time = parse_datetime(item.get("bar_time")).replace(tzinfo=None)
         period_minutes = int(item.get("period_minutes") or 5)
         key = (stock.id, period_minutes, bar_time)
@@ -233,7 +249,10 @@ def ingest_intraday_kline_payload(db: Session, payload: dict[str, Any]) -> dict[
             for field, value in values.items():
                 setattr(row, field, value)
             updated += 1
-    summary = {"inserted": inserted, "updated": updated, "failed": len(payload.get("failed_items") or [])}
+    summary = _with_affected_codes(
+        {"inserted": inserted, "updated": updated, "failed": len(payload.get("failed_items") or []), "period_minutes": payload.get("period_minutes")},
+        affected_codes,
+    )
     _record_job(db, payload.get("job_type", "intraday_kline"), source, "success", summary, {"count": len(items), "period_minutes": payload.get("period_minutes")})
     db.commit()
     publish_event("intraday.updated", summary)

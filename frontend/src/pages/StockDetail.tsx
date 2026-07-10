@@ -13,6 +13,7 @@ import RelatedNews from '../features/stock-detail/components/RelatedNews';
 import StrategySummary from '../features/stock-detail/components/StrategySummary';
 import { selectDefaultKlineMode, type KlineMode } from '../features/stock-detail/klineMode';
 import TechnicalIndicators from '../features/stock-detail/components/TechnicalIndicators';
+import { backendEventTouchesStock } from '../features/paper-trading/paperTradingData';
 import { useBackendEvents } from '../hooks/useBackendEvents';
 import { useThemeMode } from '../theme/ThemeModeContext';
 import type { Advice, IntradayKline, Kline, NewsItem, Snapshot, Stock } from '../types';
@@ -118,7 +119,15 @@ export default function StockDetail() {
     return () => window.clearInterval(timer);
   }, [refreshIntraday, stock?.is_watched]);
 
-  useBackendEvents(['market.updated', 'watchlist.updated', 'news.updated', 'advice.updated', 'kline.updated', 'intraday.updated'], () => load(false));
+  useBackendEvents(['market.updated', 'watchlist.updated', 'news.updated', 'advice.updated', 'kline.updated', 'intraday.updated', 'paper_watchlist.updated'], (event) => {
+    if (
+      ['market.updated', 'watchlist.updated', 'advice.updated', 'kline.updated', 'intraday.updated', 'paper_watchlist.updated'].includes(event.type)
+      && !backendEventTouchesStock(event, code)
+    ) {
+      return;
+    }
+    void load(false);
+  });
 
   const analyze = async () => {
     try {
