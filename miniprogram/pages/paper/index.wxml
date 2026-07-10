@@ -1,0 +1,228 @@
+<view class="page paper-page">
+  <view class="page-header">
+    <text class="page-title">模拟交易</text>
+    <text class="page-subtitle">用户账号资产、自选股、委托与流水同步展示</text>
+  </view>
+
+  <block wx:if="{{!loggedIn}}">
+    <view class="card auth-card">
+      <view class="pill-row auth-tabs">
+        <view class="pill {{authMode == 'login' ? 'pill-active' : ''}}" data-mode="login" bindtap="setAuthMode">登录账户</view>
+        <view class="pill {{authMode == 'create' ? 'pill-active' : ''}}" data-mode="create" bindtap="setAuthMode">创建账户</view>
+      </view>
+
+      <block wx:if="{{authMode == 'login'}}">
+        <view class="field">
+          <text class="field-label">账号</text>
+          <input class="input" value="{{loginOwnerName}}" data-field="loginOwnerName" bindinput="bindInput" placeholder="输入模拟交易账号" />
+        </view>
+        <view class="field">
+          <text class="field-label">密码</text>
+          <input class="input" password value="{{loginPassword}}" data-field="loginPassword" bindinput="bindInput" placeholder="输入密码" />
+        </view>
+        <button class="primary-button" loading="{{submitting}}" bindtap="loginPaperAccount">登录</button>
+      </block>
+
+      <block wx:else>
+        <view class="field">
+          <text class="field-label">账号</text>
+          <input class="input" value="{{createOwnerName}}" data-field="createOwnerName" bindinput="bindInput" placeholder="创建账号名" />
+        </view>
+        <view class="field">
+          <text class="field-label">密码</text>
+          <input class="input" password value="{{createPassword}}" data-field="createPassword" bindinput="bindInput" placeholder="至少 6 位" />
+        </view>
+        <button class="primary-button" loading="{{submitting}}" bindtap="createPaperAccount">创建并登录</button>
+      </block>
+    </view>
+  </block>
+
+  <block wx:else>
+    <view class="card account-card">
+      <view class="row-between">
+        <view>
+          <text class="card-title">账户概览</text>
+          <text class="muted">总资产 / 可用现金 / 持仓市值</text>
+        </view>
+        <button class="ghost-button" bindtap="logoutPaperAccount">退出</button>
+      </view>
+      <view class="grid-2">
+        <view class="metric">
+          <text class="metric-label">总资产</text>
+          <text class="metric-value">{{summary.totalAssetsText}}</text>
+        </view>
+        <view class="metric">
+          <text class="metric-label">可用现金</text>
+          <text class="metric-value">{{summary.cashAvailableText}}</text>
+        </view>
+        <view class="metric">
+          <text class="metric-label">持仓市值</text>
+          <text class="metric-value">{{summary.marketValueText}}</text>
+        </view>
+        <view class="metric">
+          <text class="metric-label">总收益率</text>
+          <text class="metric-value">{{performance.totalReturnText}}</text>
+        </view>
+      </view>
+      <canvas canvas-id="assetChart" class="chart asset-chart"></canvas>
+    </view>
+
+    <view class="card">
+      <view class="row-between">
+        <text class="card-title">账户自选股与分钟 K</text>
+        <button class="ghost-button" bindtap="addWatch">加入自选</button>
+      </view>
+      <scroll-view scroll-x class="watch-scroll">
+        <view class="watch-strip">
+          <view
+            wx:for="{{watchlist}}"
+            wx:key="code"
+            class="watch-chip {{selectedCode == item.code ? 'watch-chip-active' : ''}}"
+            data-code="{{item.code}}"
+            bindtap="selectWatch"
+          >
+            <text class="watch-name">{{item.name}}</text>
+            <text class="watch-code">{{item.code}}</text>
+            <text class="{{item.changeClass}}">{{item.changePctText}}</text>
+          </view>
+        </view>
+      </scroll-view>
+
+      <view wx:if="{{quote}}" class="quote-panel">
+        <view>
+          <text class="stock-name">{{quote.name}} {{quote.code}}</text>
+          <text class="stock-code">涨跌停 {{quote.limitText}} · {{quote.price_source}}</text>
+        </view>
+        <view class="value-right">
+          <text class="quote-price">{{quote.priceText}}</text>
+          <text class="signal {{quote.signalClass}}">{{quote.signal}}</text>
+        </view>
+      </view>
+
+      <canvas canvas-id="intradayChart" class="chart kline-chart"></canvas>
+      <view wx:if="{{!watchlist.length}}" class="empty">还没有账户自选股，可在下单面板输入代码后加入。</view>
+    </view>
+
+    <view class="card order-card">
+      <text class="card-title">下单面板</text>
+      <view class="field">
+        <text class="field-label">股票代码 / 名称</text>
+        <view class="search-row">
+          <input class="input search-input" value="{{searchKeyword}}" data-field="searchKeyword" bindinput="bindInput" placeholder="300308.SZ 或 股票名" />
+          <button class="secondary-button search-button" bindtap="searchStocks">搜索</button>
+        </view>
+      </view>
+      <view wx:if="{{stockCandidates.length}}" class="candidate-list">
+        <view wx:for="{{stockCandidates}}" wx:key="code" class="candidate" data-code="{{item.code}}" bindtap="selectCandidate">
+          <text>{{item.label}}</text>
+          <text class="muted">{{item.industry}}</text>
+        </view>
+      </view>
+
+      <view class="field">
+        <text class="field-label">委托代码</text>
+        <input class="input" value="{{orderCode}}" data-field="orderCode" bindinput="bindInput" placeholder="例如 300308.SZ" />
+      </view>
+
+      <view class="grid-2">
+        <view>
+          <text class="field-label">方向</text>
+          <view class="segmented">
+            <view class="segment {{orderSide == 'buy' ? 'segment-buy-active' : ''}}" data-side="buy" bindtap="setOrderSide">买入</view>
+            <view class="segment {{orderSide == 'sell' ? 'segment-sell-active' : ''}}" data-side="sell" bindtap="setOrderSide">卖出</view>
+          </view>
+        </view>
+        <view>
+          <text class="field-label">类型</text>
+          <view class="segmented type-grid">
+            <view class="segment {{orderType == 'market' ? 'segment-active' : ''}}" data-type="market" bindtap="setOrderType">市价</view>
+            <view class="segment {{orderType == 'limit' ? 'segment-active' : ''}}" data-type="limit" bindtap="setOrderType">限价</view>
+            <view class="segment {{orderType == 'take_profit' ? 'segment-active' : ''}}" data-type="take_profit" bindtap="setOrderType">止盈</view>
+            <view class="segment {{orderType == 'stop_loss' ? 'segment-active' : ''}}" data-type="stop_loss" bindtap="setOrderType">止损</view>
+          </view>
+        </view>
+      </view>
+
+      <view class="grid-2 form-grid">
+        <view class="field">
+          <text class="field-label">数量</text>
+          <input class="input" type="number" value="{{quantity}}" data-field="quantity" bindinput="bindInput" />
+        </view>
+        <view wx:if="{{orderType == 'limit'}}" class="field">
+          <text class="field-label">限价</text>
+          <input class="input" type="digit" value="{{limitPrice}}" data-field="limitPrice" bindinput="bindInput" />
+        </view>
+        <view wx:if="{{orderType == 'take_profit' || orderType == 'stop_loss'}}" class="field">
+          <text class="field-label">触发价</text>
+          <input class="input" type="digit" value="{{triggerPrice}}" data-field="triggerPrice" bindinput="bindInput" />
+        </view>
+      </view>
+      <button class="primary-button" loading="{{submitting}}" bindtap="submitOrder">提交委托</button>
+      <button class="secondary-button match-button" bindtap="runMatching">运行撮合</button>
+    </view>
+
+    <view class="card">
+      <text class="card-title">可交易持仓 / 持仓</text>
+      <view wx:for="{{positions}}" wx:key="stock_id" class="list-item position-row">
+        <view>
+          <text class="stock-name">{{item.name}}</text>
+          <text class="stock-code">{{item.code}} · {{item.quantityText}}</text>
+        </view>
+        <view class="value-right">
+          <text>{{item.marketValueText}}</text>
+          <text class="{{item.pnlClass}}">{{item.pnlText}} / {{item.pnlPctText}}</text>
+        </view>
+      </view>
+      <view wx:if="{{!positions.length}}" class="empty">暂无持仓</view>
+    </view>
+
+    <view class="card records-card">
+      <text class="card-title">记录中心</text>
+      <view class="pill-row record-tabs">
+        <view class="pill {{recordTab == 'orders' ? 'pill-active' : ''}}" data-tab="orders" bindtap="setRecordTab">委托</view>
+        <view class="pill {{recordTab == 'trades' ? 'pill-active' : ''}}" data-tab="trades" bindtap="setRecordTab">成交</view>
+        <view class="pill {{recordTab == 'flows' ? 'pill-active' : ''}}" data-tab="flows" bindtap="setRecordTab">流水</view>
+      </view>
+
+      <block wx:if="{{recordTab == 'orders'}}">
+        <view wx:for="{{orders}}" wx:key="id" class="list-item record-row">
+          <view>
+            <text class="stock-name">{{item.name}} {{item.code}}</text>
+            <text class="stock-code">{{item.typeText}} · {{item.status}} · {{item.createdText}}</text>
+          </view>
+          <view class="value-right">
+            <text class="{{item.sideClass}}">{{item.sideText}}</text>
+            <text class="muted">{{item.progressText}}</text>
+          </view>
+          <button wx:if="{{item.status == 'pending' || item.status == 'monitoring'}}" class="ghost-button cancel-button" data-id="{{item.id}}" bindtap="cancelOrder">撤</button>
+        </view>
+      </block>
+
+      <block wx:elif="{{recordTab == 'trades'}}">
+        <view wx:for="{{trades}}" wx:key="id" class="list-item record-row">
+          <view>
+            <text class="stock-name">{{item.name}} {{item.code}}</text>
+            <text class="stock-code">{{item.timeText}} · 费用 {{item.feeText}}</text>
+          </view>
+          <view class="value-right">
+            <text class="{{item.sideClass}}">{{item.sideText}} {{item.quantity}}</text>
+            <text>{{item.amountText}}</text>
+          </view>
+        </view>
+      </block>
+
+      <block wx:else>
+        <view wx:for="{{flows}}" wx:key="id" class="list-item record-row">
+          <view>
+            <text class="stock-name">{{item.typeText}}</text>
+            <text class="stock-code">{{item.timeText}} · 余额 {{item.balanceText}}</text>
+          </view>
+          <view class="value-right">
+            <text class="{{item.amountClass}}">{{item.amountText}}</text>
+            <text class="muted">{{item.remark}}</text>
+          </view>
+        </view>
+      </block>
+    </view>
+  </block>
+</view>

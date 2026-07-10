@@ -1,0 +1,108 @@
+.account-card {
+  color: #ffffff;
+  border-color: #1f2937;
+  background: linear-gradient(135deg, #101820 0%, #263548 100%);
+}
+
+.account-card .card-title,
+.account-card .muted,
+.account-card .metric-label,
+.account-card .metric-value {
+  color: #ffffff;
+}
+
+.account-card .metric {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.account-total {
+  color: #ffffff;
+  font-size: 42rpx;
+  font-weight: 800;
+}
+
+.account-grid {
+  margin-top: 22rpx;
+}
+
+.login-hint {
+  border-style: dashed;
+}
+
+.ranking-columns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18rpx;
+}
+
+.ranking-title {
+  display: block;
+  margin-bottom: 12rpx;
+  font-size: 24rpx;
+  font-weight: 700;
+}
+
+.rank-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12rpx;
+  padding: 16rpx 0;
+  border-bottom: 1rpx solid #edf1f7;
+}
+
+.rank-row:last-child {
+  border-bottom: 0;
+}
+
+.rank-price {
+  display: block;
+  margin-top: 4rpx;
+  color: #667085;
+  font-size: 22rpx;
+}
+
+.watch-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 150rpx 132rpx;
+  align-items: center;
+  gap: 12rpx;
+}
+
+.signal {
+  min-height: 46rpx;
+  padding: 8rpx 12rpx;
+  border-radius: 999rpx;
+  text-align: center;
+  font-size: 22rpx;
+  font-weight: 700;
+}
+
+.signal-buy {
+  color: #d12f2f;
+  background: #fff1f1;
+}
+
+.signal-risk {
+  color: #148f56;
+  background: #e9f8ef;
+}
+
+.signal-hold {
+  color: #475467;
+  background: #eef2f7;
+}
+
+.news-title {
+  display: block;
+  color: #101820;
+  font-size: 28rpx;
+  font-weight: 650;
+  line-height: 1.45;
+}
+
+.news-meta {
+  display: block;
+  margin-top: 8rpx;
+  color: #667085;
+  font-size: 22rpx;
+}

@@ -1,0 +1,110 @@
+<view class="page dashboard-page">
+  <view class="page-header">
+    <text class="page-title">Dashboard</text>
+    <text class="page-subtitle">同步 Web 端后端数据 · {{lastUpdated}}</text>
+  </view>
+
+  <view wx:if="{{accountSummary}}" class="card account-card" bindtap="openPaper">
+    <view class="row-between">
+      <view>
+        <text class="card-title">模拟账户</text>
+        <text class="muted">当前登录账户资产同步</text>
+      </view>
+      <text class="account-total">{{accountSummary.totalAssetsText}}</text>
+    </view>
+    <view class="grid-3 account-grid">
+      <view class="metric">
+        <text class="metric-label">可用现金</text>
+        <text class="metric-value">{{accountSummary.cashAvailableText}}</text>
+      </view>
+      <view class="metric">
+        <text class="metric-label">持仓市值</text>
+        <text class="metric-value">{{accountSummary.marketValueText}}</text>
+      </view>
+      <view class="metric">
+        <text class="metric-label">持仓数</text>
+        <text class="metric-value">{{accountSummary.position_count}}</text>
+      </view>
+    </view>
+  </view>
+
+  <view wx:else class="card login-hint" bindtap="openPaper">
+    <text class="card-title">模拟账户未登录</text>
+    <text class="muted">进入模拟交易页登录后，可在 Dashboard 同步查看账户总资产与持仓摘要。</text>
+  </view>
+
+  <view class="card">
+    <text class="card-title">主要指数</text>
+    <view class="grid-2">
+      <view wx:for="{{indices}}" wx:key="code" class="metric index-metric">
+        <text class="metric-label">{{item.name}}</text>
+        <text class="metric-value">{{item.priceText}}</text>
+        <text class="metric-extra {{item.changeClass}}">{{item.changePctText}}</text>
+      </view>
+    </view>
+    <view wx:if="{{!indices.length && !loading}}" class="empty">暂无指数数据</view>
+  </view>
+
+  <view class="card">
+    <view class="row-between">
+      <text class="card-title">市场排行</text>
+      <text class="muted">涨幅 / 跌幅</text>
+    </view>
+    <view class="ranking-columns">
+      <view class="ranking-column">
+        <text class="ranking-title price-up">涨幅靠前</text>
+        <view wx:for="{{topGainers}}" wx:key="code" class="rank-row">
+          <view>
+            <text class="stock-name">{{item.name}}</text>
+            <text class="stock-code">{{item.code}}</text>
+          </view>
+          <view class="value-right">
+            <text class="{{item.changeClass}}">{{item.changePctText}}</text>
+            <text class="rank-price">{{item.priceText}}</text>
+          </view>
+        </view>
+      </view>
+      <view class="ranking-column">
+        <text class="ranking-title price-down">跌幅靠前</text>
+        <view wx:for="{{topLosers}}" wx:key="code" class="rank-row">
+          <view>
+            <text class="stock-name">{{item.name}}</text>
+            <text class="stock-code">{{item.code}}</text>
+          </view>
+          <view class="value-right">
+            <text class="{{item.changeClass}}">{{item.changePctText}}</text>
+            <text class="rank-price">{{item.priceText}}</text>
+          </view>
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <view class="card">
+    <text class="card-title">系统自选股</text>
+    <view wx:for="{{watchlist}}" wx:key="code" class="list-item watch-row">
+      <view>
+        <text class="stock-name">{{item.name}}</text>
+        <text class="stock-code">{{item.code}}</text>
+      </view>
+      <view class="value-right">
+        <text>{{item.priceText}}</text>
+        <text class="{{item.changeClass}}">{{item.changePctText}}</text>
+      </view>
+      <view class="signal {{item.signalClass}}">{{item.signal}}</view>
+    </view>
+    <view wx:if="{{!watchlist.length && !loading}}" class="empty">暂无系统自选股</view>
+  </view>
+
+  <view class="card">
+    <view class="row-between">
+      <text class="card-title">最新资讯</text>
+      <button class="ghost-button" bindtap="openNews">更多</button>
+    </view>
+    <view wx:for="{{news}}" wx:key="id" class="list-item news-row">
+      <text class="news-title">{{item.title}}</text>
+      <text class="news-meta">{{item.source}} · {{item.sentimentText}} · {{item.timeText}}</text>
+    </view>
+    <view wx:if="{{!news.length && !loading}}" class="empty">暂无资讯</view>
+  </view>
+</view>

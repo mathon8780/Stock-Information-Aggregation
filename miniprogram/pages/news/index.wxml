@@ -1,0 +1,49 @@
+<view class="page news-page">
+  <view class="page-header">
+    <text class="page-title">News</text>
+    <text class="page-subtitle">真实资讯与 LLM 整理结果同步展示</text>
+  </view>
+
+  <view class="card filter-card">
+    <text class="filter-label">范围</text>
+    <view class="pill-row">
+      <view
+        wx:for="{{scopeOptions}}"
+        wx:key="value"
+        class="pill {{scope == item.value ? 'pill-active' : ''}}"
+        data-value="{{item.value}}"
+        bindtap="selectScope"
+      >{{item.label}}</view>
+    </view>
+
+    <text class="filter-label second">情绪</text>
+    <view class="pill-row">
+      <view
+        wx:for="{{sentimentOptions}}"
+        wx:key="value"
+        class="pill {{sentiment == item.value ? 'pill-active' : ''}}"
+        data-value="{{item.value}}"
+        bindtap="selectSentiment"
+      >{{item.label}}</view>
+    </view>
+  </view>
+
+  <view wx:for="{{items}}" wx:key="id" class="card news-card" data-id="{{item.id}}" bindtap="toggleNews">
+    <view class="row-between">
+      <view class="news-title-wrap">
+        <text class="news-title">{{item.title}}</text>
+        <text wx:if="{{item.stockCode}}" class="stock-code">{{item.stockName}} {{item.stockCode}}</text>
+      </view>
+      <text class="sentiment sentiment-{{item.sentiment}}">{{item.sentimentText}}</text>
+    </view>
+    <text class="news-meta">{{item.source}} · {{item.timeText}} · 重要度 {{item.importance}}</text>
+    <text class="news-summary {{item.isExpanded ? 'expanded' : ''}}">{{item.body}}</text>
+    <view wx:if="{{item.isExpanded}}" class="news-extra">
+      <text class="muted">处理状态：{{item.simplification_status}}</text>
+      <text wx:if="{{item.llm_model}}" class="muted">模型：{{item.llm_provider}}/{{item.llm_model}}</text>
+      <button wx:if="{{item.url}}" class="ghost-button" data-url="{{item.url}}" catchtap="copyUrl">复制原文链接</button>
+    </view>
+  </view>
+
+  <view wx:if="{{!items.length && !loading}}" class="card empty">暂无新闻数据</view>
+</view>

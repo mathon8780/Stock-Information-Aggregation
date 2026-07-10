@@ -1,0 +1,36 @@
+{
+  "pages": [
+    "pages/dashboard/index",
+    "pages/news/index",
+    "pages/paper/index"
+  ],
+  "window": {
+    "navigationBarTitleText": "证券监视",
+    "navigationBarBackgroundColor": "#101820",
+    "navigationBarTextStyle": "white",
+    "backgroundColor": "#f4f7fb",
+    "backgroundTextStyle": "dark"
+  },
+  "tabBar": {
+    "color": "#7a869a",
+    "selectedColor": "#d12f2f",
+    "backgroundColor": "#ffffff",
+    "borderStyle": "black",
+    "list": [
+      {
+        "pagePath": "pages/dashboard/index",
+        "text": "Dashboard"
+      },
+      {
+        "pagePath": "pages/news/index",
+        "text": "News"
+      },
+      {
+        "pagePath": "pages/paper/index",
+        "text": "模拟交易"
+      }
+    ]
+  },
+  "style": "v2",
+  "sitemapLocation": "sitemap.json"
+}
