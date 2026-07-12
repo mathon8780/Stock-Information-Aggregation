@@ -54,14 +54,19 @@ function createCandlestickOption(labels: string[], candle: number[][], closes: n
   });
 
   const palette = chartPalette(themeMode);
-  const buyMarkers = tradeMarkers.filter((marker) => marker.side === 'buy').map((marker) => ({
-    value: [marker.barIndex, marker.price],
+  const validTradeMarkers = tradeMarkers.filter((marker) => (
+    marker.barIndex >= 0
+    && marker.barIndex < labels.length
+    && Number.isFinite(marker.price)
+  ));
+  const buyMarkers = validTradeMarkers.filter((marker) => marker.side === 'buy').map((marker) => ({
+    value: [labels[marker.barIndex], marker.price],
     quantity: marker.quantity,
     amount: marker.amount,
     tradeTime: marker.tradeTime,
   }));
-  const sellMarkers = tradeMarkers.filter((marker) => marker.side === 'sell').map((marker) => ({
-    value: [marker.barIndex, marker.price],
+  const sellMarkers = validTradeMarkers.filter((marker) => marker.side === 'sell').map((marker) => ({
+    value: [labels[marker.barIndex], marker.price],
     quantity: marker.quantity,
     amount: marker.amount,
     tradeTime: marker.tradeTime,
@@ -89,8 +94,9 @@ function createCandlestickOption(labels: string[], candle: number[][], closes: n
         data: buyMarkers,
         symbol: 'triangle',
         symbolSize: 14,
-        symbolOffset: [0, -12],
+        symbolOffset: [0, -8],
         itemStyle: { color: '#dc2626', borderColor: '#ffffff', borderWidth: 1 },
+        clip: true,
         z: 8,
       }] : []),
       ...(sellMarkers.length ? [{
@@ -100,8 +106,9 @@ function createCandlestickOption(labels: string[], candle: number[][], closes: n
         symbol: 'triangle',
         symbolRotate: 180,
         symbolSize: 14,
-        symbolOffset: [0, 12],
+        symbolOffset: [0, 8],
         itemStyle: { color: '#16a34a', borderColor: '#ffffff', borderWidth: 1 },
+        clip: true,
         z: 8,
       }] : []),
     ],

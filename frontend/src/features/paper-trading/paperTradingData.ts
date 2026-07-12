@@ -19,6 +19,7 @@ export interface StockSearchOption {
 
 export interface PaperTradeMarker {
   barIndex: number;
+  barTime: string;
   price: number;
   side: PaperTrade['side'];
   quantity: number;
@@ -81,11 +82,13 @@ export function isReasonablePaperPhone(value: string | undefined): boolean {
 export function createPaperTradeMarkers(kline: IntradayKline[], trades: PaperTrade[], code: string): PaperTradeMarker[] {
   const normalizedCode = code.trim().toUpperCase();
   if (!normalizedCode || !kline.length) return [];
-  const barTimes = kline.map((bar) => new Date(bar.bar_time).getTime());
+  const barTimes = kline.map((bar) => parseMarketTimestamp(bar.bar_time));
+  if (barTimes.some((barTime) => !Number.isFinite(barTime))) return [];
+  const maxDistanceMs = Math.max(inferIntradayIntervalMs(kline, barTimes), 60_000);
   const markers: PaperTradeMarker[] = [];
   trades.forEach((trade) => {
     if (trade.code.toUpperCase() !== normalizedCode || !trade.trade_time) return;
-    const tradeTime = new Date(trade.trade_time).getTime();
+    const tradeTime = parseMarketTimestamp(trade.trade_time);
     if (!Number.isFinite(tradeTime)) return;
     let nearestIndex = 0;
     let nearestDistance = Number.POSITIVE_INFINITY;
@@ -96,8 +99,10 @@ export function createPaperTradeMarkers(kline: IntradayKline[], trades: PaperTra
         nearestIndex = index;
       }
     });
+    if (nearestDistance > maxDistanceMs) return;
     markers.push({
       barIndex: nearestIndex,
+      barTime: kline[nearestIndex].bar_time,
       price: trade.price,
       side: trade.side,
       quantity: trade.quantity,
@@ -106,6 +111,24 @@ export function createPaperTradeMarkers(kline: IntradayKline[], trades: PaperTra
     });
   });
   return markers;
+}
+
+function parseMarketTimestamp(value: string): number {
+  if (/[zZ]|[+-]\d{2}:\d{2}$/.test(value)) return new Date(value).getTime();
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})[T\s](\d{2}):(\d{2})(?::(\d{2}))?/);
+  if (!match) return Number.NaN;
+  const [, year, month, day, hour, minute, second = '0'] = match;
+  return Date.UTC(Number(year), Number(month) - 1, Number(day), Number(hour) - 8, Number(minute), Number(second));
+}
+
+function inferIntradayIntervalMs(kline: IntradayKline[], barTimes: number[]): number {
+  const explicitPeriod = kline.find((bar) => Number.isFinite(bar.period_minutes) && bar.period_minutes > 0)?.period_minutes;
+  if (explicitPeriod) return explicitPeriod * 60_000;
+  const diffs = barTimes
+    .slice(1)
+    .map((barTime, index) => barTime - barTimes[index])
+    .filter((diff) => diff > 0);
+  return Math.min(...diffs, 60_000);
 }
 
 export function stockCodeFromBackendEvent(event: BackendEventLike): string {

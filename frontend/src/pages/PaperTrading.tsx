@@ -87,7 +87,7 @@ export default function PaperTrading() {
   const [quote, setQuote] = useState<PaperQuote | null>(null);
   const [paperWatchlist, setPaperWatchlist] = useState<PaperWatchItem[]>([]);
   const [selectedWatchCode, setSelectedWatchCode] = useState('');
-  const [intraday, setIntraday] = useState<IntradayKline[]>([]);
+  const [intradayByCode, setIntradayByCode] = useState<Record<string, IntradayKline[]>>({});
   const [intradayLoading, setIntradayLoading] = useState(false);
   const [intradayStatus, setIntradayStatus] = useState<IntradayStatus>('idle');
   const [createCaptcha, setCreateCaptcha] = useState<PaperAccountCaptcha | null>(null);
@@ -180,7 +180,7 @@ export default function PaperTrading() {
       setEquity([]);
       setPaperWatchlist([]);
       setSelectedWatchCode('');
-      setIntraday([]);
+      setIntradayByCode({});
       setIntradayStatus('idle');
       setIntradayLoading(false);
       setStockPerformance([]);
@@ -254,7 +254,10 @@ export default function PaperTrading() {
     [paperWatchlist, selectedWatchCode],
   );
   const selectedWatchCodeForChart = selectedWatchItem?.stock.code ?? '';
-  const latestIntraday = useMemo(() => selectLatestTradingDayIntraday(intraday), [intraday]);
+  const latestIntraday = useMemo(
+    () => (selectedWatchCodeForChart ? intradayByCode[selectedWatchCodeForChart] ?? [] : []),
+    [intradayByCode, selectedWatchCodeForChart],
+  );
   const latestIntradayTime = latestIntraday.at(-1)?.bar_time;
   const intradayTradeMarkers = useMemo(
     () => createPaperTradeMarkers(latestIntraday, trades, selectedWatchCodeForChart),
@@ -292,7 +295,10 @@ export default function PaperTrading() {
     const readCachedIntraday = async () => {
       const result = await api.intraday(normalizedCode, 1, 1);
       if (!canApplyResult()) return false;
-      setIntraday(selectLatestTradingDayIntraday(result.items));
+      setIntradayByCode((current) => ({
+        ...current,
+        [normalizedCode]: selectLatestTradingDayIntraday(result.items),
+      }));
       return true;
     };
 
@@ -311,7 +317,13 @@ export default function PaperTrading() {
         finishRequest('idle');
       } catch (error) {
         if (!canApplyResult()) return;
-        if (plan.clearOnError) setIntraday([]);
+        if (plan.clearOnError) {
+          setIntradayByCode((current) => {
+            const next = { ...current };
+            delete next[normalizedCode];
+            return next;
+          });
+        }
         setIntradayStatus('error');
         setIntradayLoading(false);
         if (options.notify) message.error(error instanceof Error ? error.message : '分钟 K 更新失败');
@@ -334,7 +346,13 @@ export default function PaperTrading() {
       finishRequest('idle');
     } catch (error) {
       if (!canApplyResult()) return;
-      if (plan.clearOnError) setIntraday([]);
+      if (plan.clearOnError) {
+        setIntradayByCode((current) => {
+          const next = { ...current };
+          delete next[normalizedCode];
+          return next;
+        });
+      }
       setIntradayStatus('error');
       setIntradayLoading(false);
       if (options.notify) message.error(error instanceof Error ? error.message : '分钟 K 更新失败');
@@ -348,7 +366,6 @@ export default function PaperTrading() {
 
   useEffect(() => {
     if (!selectedWatchCodeForChart) {
-      setIntraday([]);
       setIntradayStatus('idle');
       setIntradayLoading(false);
       return;
@@ -467,7 +484,7 @@ export default function PaperTrading() {
     setQuote(null);
     setPaperWatchlist([]);
     setSelectedWatchCode('');
-    setIntraday([]);
+    setIntradayByCode({});
     setIntradayStatus('idle');
     setIntradayLoading(false);
     setCreateCaptcha(null);
@@ -1199,7 +1216,7 @@ export default function PaperTrading() {
                       </Space>
                     </div>
                     <div className="paper-watch-chart-shell">
-                      <ReactECharts option={intradayOption} className="paper-intraday-chart" style={{ height: '100%', width: '100%' }} />
+                      <ReactECharts option={intradayOption} notMerge className="paper-intraday-chart" style={{ height: '100%', width: '100%' }} />
                     </div>
                   </div>
                 ),
