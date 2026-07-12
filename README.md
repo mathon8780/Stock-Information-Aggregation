@@ -426,23 +426,41 @@ node .\miniprogram\tests\api-network-error.test.mjs
 
 建议在提交前至少运行后端 pytest、前端 build，以及本次改动相关的小程序或前端 Node 测试。
 
-## Docker 构建
+## Docker 一键运行
 
-后端镜像：
+Docker Compose 会同时启动 React Web 前端、FastAPI 后端和 PostgreSQL 16。数据库数据存放在 Docker 命名卷 `postgres_data` 中，不会打进镜像或提交到仓库。
 
-```powershell
-docker build -t market-agent-backend .\backend
-docker run --rm -p 8000:8000 --env-file .env market-agent-backend
-```
-
-前端镜像：
+首次启动时，在项目根目录执行：
 
 ```powershell
-docker build -t market-agent-frontend .\frontend --build-arg VITE_API_BASE_URL=http://localhost:8000/api/v1
-docker run --rm -p 8080:80 market-agent-frontend
+Copy-Item .env.docker.example .env.docker
+docker compose up -d --build
 ```
 
-当前仓库没有提供 `docker-compose.yml`。容器化运行时仍需准备外部 PostgreSQL，并确保后端容器中的 `DATABASE_URL` 能访问该数据库。
+访问地址：
+
+- Web：`http://localhost:3000`
+- 后端 Swagger：`http://localhost:8000/docs`
+- 后端健康检查：`http://localhost:8000/api/v1/health`
+
+前端通过同源 `/api/v1` 访问后端，Nginx 会代理普通 API 和 SSE 事件流；无需在镜像构建时写入宿主机 IP。`.env.docker` 是本机运行配置，必须保持未提交。示例中的 PostgreSQL 密码仅适用于本机演示，暴露服务前必须替换，并同步修改 `DATABASE_URL`。
+
+常用运维命令：
+
+```powershell
+docker compose ps
+docker compose logs -f
+docker compose down
+docker compose exec -T postgres pg_dump -U market market_agent > backup.sql
+```
+
+`docker compose down` 会保留数据库卷。仅在确实需要清空所有容器数据时执行以下命令：
+
+```powershell
+docker compose down -v
+```
+
+重新启动后可直接执行 `docker compose up -d`。后端会自动创建缺失的数据表；启动行情同步由 `.env.docker` 中的 `STARTUP_SYNC_*` 配置控制。
 
 ## 运行与安全注意事项
 

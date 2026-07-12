@@ -43,6 +43,7 @@ frontend/dist/
 .env.*
 .env.local
 !.env.example
+!.env.docker.example
 miniprogram/project.private.config.json
 
 # IDE / OS
