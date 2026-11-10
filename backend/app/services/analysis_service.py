@@ -17,9 +17,6 @@ from app.services.notification_service import create_notification
 from app.services.push_message_service import write_strategy_message
 
 
-DISCLAIMER = "本系统生成的交易建议仅用于课程项目、学习研究和辅助分析，不构成任何投资建议，不承诺收益，也不替代用户独立判断。"
-
-
 def _to_kline_rows(klines: list[KlineDaily]) -> list[dict[str, Any]]:
     return [
         {
@@ -171,7 +168,7 @@ def _strategy_text(signal: str, indicators: dict[str, Any]) -> str:
 def _risk_text(signal: str, market_trend: str | None) -> str:
     market = "若主要指数继续走弱，应降低仓位或暂停操作。" if market_trend == "negative" else "需持续跟踪指数环境和成交量变化。"
     signal_risk = {"谨慎买入": "谨慎买入仍需控制单次仓位，避免在冲高时一次性买入。", "重点关注": "重点关注不是买入指令，需要等待价格和量能确认。", "减仓": "减仓信号出现后应优先控制回撤。", "回避": "回避阶段应避免因短线反弹忽略基本风险。", "持有": "持有阶段需要设置止损或退出条件。"}.get(signal, "需保持风险控制。")
-    return f"{signal_risk}{market}{DISCLAIMER}"
+    return f"{signal_risk}{market}"
 
 
 def analyze_stock(db: Session, code: str) -> TradingAdvice:

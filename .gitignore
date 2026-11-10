@@ -44,7 +44,10 @@ frontend/dist/
 .env.local
 !.env.example
 !.env.docker.example
-miniprogram/project.private.config.json
+
+# Local-only content
+.planning/
+docs/
 
 # IDE / OS
 .idea/

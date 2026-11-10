@@ -1,6 +1,6 @@
 # 智能证券市场监视、提醒与策略建议系统
 
-这是一个本地运行的 A 股市场监控、新闻整理、策略分析与模拟交易系统。项目包含 FastAPI 后端、React/Vite Web 前端、原生微信小程序端、本地 PostgreSQL 数据库、AKShare/公开 Web 行情数据源、NewsNow 新闻源，以及可配置的 OpenAI 兼容 LLM 新闻简化能力。
+这是一个本地运行的 A 股市场监控、新闻整理、策略分析与模拟交易系统。项目包含 FastAPI 后端、React/Vite Web 前端、本地 PostgreSQL 数据库、AKShare/公开 Web 行情数据源、NewsNow 新闻源，以及可配置的 OpenAI 兼容 LLM 新闻简化能力。
 
 系统定位为课程项目、学习研究和辅助分析工具。后端不会伪造行情数据；真实数据源不可用时，会在 `collection_jobs` 中记录失败状态，并通过 Settings 页面或通知列表展示，方便排查。
 
@@ -12,8 +12,7 @@
 - 新闻资讯：从 NewsNow 获取新闻元数据；配置 LLM 后抓取原文并生成本地简化内容、情绪和重要性信息。
 - 通知与推送：记录行情异动、策略变化、新闻摘要、重大事件、模拟交易成交和风控提醒；可输出 Markdown 推送文件。
 - 模拟交易：支持用户注册/登录、账户自选股、买卖委托、撮合、T+1 持仓、费用计算、绩效统计和管理员总览。
-- 多端访问：Web 前端提供完整工作台；微信小程序提供登录门禁、Dashboard、News 和模拟交易移动端。
-- 实时刷新：Web 前端通过 SSE 订阅后端事件，小程序通过轮询保持同步。
+- 实时刷新：Web 前端通过 SSE 订阅后端事件。
 
 ## 技术栈
 
@@ -21,7 +20,6 @@
 | --- | --- |
 | 后端 | Python 3.11+、FastAPI、SQLAlchemy、Pydantic、psycopg、pytest |
 | 前端 | React 18、Vite 5、TypeScript、Ant Design、ECharts |
-| 小程序 | 微信小程序原生 WXML/WXSS/JS |
 | 数据库 | PostgreSQL，本地测试使用 SQLite |
 | 数据源 | AKShare、东方财富/新浪公开行情 fallback、NewsNow |
 | LLM | OpenAI 兼容 Chat Completions API，默认配置 DeepSeek |
@@ -44,11 +42,6 @@ Project/
 │  ├─ src/features/             # 页面内表格、图表和业务组件
 │  ├─ src/api/client.ts         # 前端 API client
 │  └─ tests/                    # Node test 前端业务逻辑测试
-├─ miniprogram/                 # 微信小程序端
-│  ├─ pages/login               # 登录/注册门禁
-│  ├─ pages/dashboard           # 移动端概览
-│  ├─ pages/news                # 新闻列表
-│  └─ pages/paper               # 模拟交易
 ├─ data/migrations/             # PostgreSQL 建表 SQL 参考
 ├─ docs/superpowers/            # 近期需求设计与计划文档
 ├─ tools/                       # 运维脚本，例如全市场日 K 导入
@@ -62,7 +55,6 @@ Project/
 - Python 3.11 或更高版本。后端 Dockerfile 使用 Python 3.12。
 - Node.js 22 或兼容版本。前端 Dockerfile 使用 `node:22-alpine`。
 - PostgreSQL 16 或兼容版本。默认数据库名为 `market_agent`。
-- 微信开发者工具，用于打开 `miniprogram/`。
 
 ## 本地启动
 
@@ -112,20 +104,9 @@ npm run dev -- --host 127.0.0.1 --port 5173
 - Swagger 文档：`http://127.0.0.1:8000/docs`
 - 健康检查：`http://127.0.0.1:8000/api/v1/health`
 
-### 4. 启动微信小程序
-
-1. 保持后端运行。
-2. 用微信开发者工具打开 `Project/miniprogram`。
-3. 开发者工具本地调试可使用默认 `http://127.0.0.1:8000/api/v1`。
-4. 真机预览时，将登录页里的后端地址改为电脑局域网地址，例如 `http://192.168.1.10:8000/api/v1`，并用 `--host 0.0.0.0` 启动后端。
-
-```powershell
-.\.venv\Scripts\python -m uvicorn app.main:app --app-dir backend --host 0.0.0.0 --port 8000 --reload
-```
-
 ## 关键配置
 
-`.env.example` 是本地配置模板，复制成 `.env` 后按需修改。`.env`、`.env.*`、小程序私有配置和本地运行日志均已在 `.gitignore` 中忽略。
+`.env.example` 是本地配置模板，复制成 `.env` 后按需修改。实际环境配置和本地运行日志均已在 `.gitignore` 中忽略。
 
 ### 数据库
 
@@ -188,21 +169,13 @@ QQBOT_ENABLE_JOB_FAILED_ALERT=true
 
 启用后，通知和策略建议会写入本地 Markdown 文件。`PUSH_MESSAGE_DIR` 应改成自己机器上的路径，不要提交私人路径或真实 webhook。
 
-### 前端与小程序 API 地址
+### 前端 API 地址
 
 Web 前端使用：
 
 ```env
 VITE_API_BASE_URL=http://localhost:8000/api/v1
 ```
-
-小程序默认地址在 `miniprogram/config.js`：
-
-```js
-defaultApiBaseUrl: 'http://127.0.0.1:8000/api/v1'
-```
-
-小程序登录页支持临时修改 API 地址，并保存到本地 storage。
 
 ## 初始化真实数据
 
@@ -293,7 +266,7 @@ Web 前端请求封装在 `frontend/src/api/client.ts`，页面状态使用普�
 
 ## 模拟交易说明
 
-模拟交易功能位于后端 `paper_trading_service.py`、Web 页面 `PaperTrading.tsx`、小程序 `pages/paper`。用户接口需要 `Authorization: Bearer <token>`。
+模拟交易功能位于后端 `paper_trading_service.py` 和 Web 页面 `PaperTrading.tsx`。用户接口需要 `Authorization: Bearer <token>`。
 
 ### 账户与登录
 
@@ -349,27 +322,6 @@ Invoke-RestMethod -Method Post http://127.0.0.1:8000/api/v1/paper/sessions `
 - `GET /paper/performance/summary`、`/paper/performance/by-stock`、`/paper/performance/calendar`、`/paper/equity`：绩效、个股盈亏、交易日历和净值曲线。
 - `GET /paper/admin/overview`：管理员查看账户汇总和资金流水。
 
-## 微信小程序端
-
-小程序在 `miniprogram/`，使用原生 WXML/WXSS/JS。入口页是 `pages/login/index`，登录成功后才能进入三个 tab：
-
-- `pages/dashboard/index`：主要指数、涨跌排行、系统自选股、最新资讯和账户资产摘要。
-- `pages/news/index`：新闻列表，支持范围和情绪筛选，可复制原文链接。
-- `pages/paper/index`：模拟交易账户概览、自选股分钟 K、下单、持仓、委托、成交和资金流水。
-
-小程序不暴露管理员入口，不使用浏览器 `EventSource`，而是按配置轮询：
-
-```js
-polling: {
-  dashboardMs: 30000,
-  newsMs: 60000,
-  paperMs: 15000,
-  intradayMs: 60000,
-}
-```
-
-`project.config.json` 固定使用 `touristappid`。如果需要真实 AppID，请复制 `miniprogram/project.private.config.example.json` 为 `project.private.config.json` 并只在本地填写，该文件已被忽略。
-
 ## 数据库表
 
 核心行情与策略表：
@@ -417,14 +369,7 @@ Set-Location .\frontend
 node --test .\tests\paperTradingData.test.mjs
 ```
 
-小程序结构与网络错误提示校验：
-
-```powershell
-node .\miniprogram\tests\validate-miniprogram.mjs
-node .\miniprogram\tests\api-network-error.test.mjs
-```
-
-建议在提交前至少运行后端 pytest、前端 build，以及本次改动相关的小程序或前端 Node 测试。
+建议在提交前至少运行后端 pytest、前端 build，以及本次改动相关的前端 Node 测试。
 
 ## Docker 一键运行
 
@@ -464,7 +409,7 @@ docker compose down -v
 
 ## 运行与安全注意事项
 
-- 不要提交 `.env`、真实 API Key、真实微信 AppID、数据库文件、运行日志或本机私有路径。
+- 不要提交 `.env`、真实 API Key、数据库文件、运行日志或本机私有路径。
 - `backend/backend-dev.log`、`frontend/frontend-dev.log`、`logs/`、`data/runtime/` 等运行产物应保持本地化。
 - 免费数据源可能限流或字段变化；采集失败应先查看 `collection_jobs.error_message` 和 Settings 页面任务记录。
 - `bootstrap` 默认会重建表，已有数据环境必须使用 `reset=false` 或改用单项采集接口。
@@ -476,10 +421,6 @@ docker compose down -v
 ### 前端提示接口不可用
 
 确认后端在 `8000` 端口运行，并检查 `frontend/.env` 或根目录 `.env` 中的 `VITE_API_BASE_URL`。默认应指向 `http://localhost:8000/api/v1`。
-
-### 小程序真机无法访问本机后端
-
-真机不能访问电脑的 `127.0.0.1`。请把小程序登录页 API 地址改成电脑局域网 IP，并用 `--host 0.0.0.0` 启动后端。
 
 ### 新闻一直是 pending
 

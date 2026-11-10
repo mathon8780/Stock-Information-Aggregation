@@ -16,7 +16,7 @@ from app.config import settings
 from app.database import SessionLocal, get_db
 from app.models import CollectionJob, KlineDaily, KlineIntraday, MarketSnapshot, News, Notification, PaperWatchlist, Stock, TradingAdvice, WatchSnapshot, Watchlist
 from app.schemas import AddWatchRequest, NewsLlmConfigRequest, PaperAccountRequest, PaperAdminAccountUpdateRequest, PaperAdminLoginRequest, PaperCaptchaRequest, PaperLoginRequest, PaperOrderRequest, UpdateWatchRequest
-from app.services.analysis_service import DISCLAIMER, analyze_stock, analyze_watchlist
+from app.services.analysis_service import analyze_stock, analyze_watchlist
 from app.services.event_bus import publish_event, subscribe, unsubscribe
 from app.services.ingest_service import normalize_code, record_collection_job
 from app.services.news_auto_sync_service import trigger_news_simplification
@@ -163,7 +163,6 @@ def get_settings(db: Session = Depends(get_db)) -> dict[str, Any]:
         },
         "push_message": {"enabled": settings.push_message_enabled, "dir": settings.push_message_dir},
         "analysis_engine": settings.analysis_engine,
-        "disclaimer": DISCLAIMER,
     }
 
 

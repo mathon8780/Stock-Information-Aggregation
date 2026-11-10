@@ -4,7 +4,6 @@ import { useState } from 'react';
 import { api, formatTime } from '../api/client';
 import MetricCard from '../components/MetricCard';
 import PageHeader from '../components/PageHeader';
-import RiskNotice from '../components/RiskNotice';
 import LatestNewsCard from '../features/dashboard/components/LatestNewsCard';
 import RankingTables from '../features/dashboard/components/RankingTables';
 import WatchlistOverview from '../features/dashboard/components/WatchlistOverview';
@@ -84,7 +83,6 @@ export default function Dashboard() {
             <WatchlistOverview watchlist={watchlist} maxSize={watchlistMaxSize} onChanged={() => load(false)} />
           </div>
 
-          <div className="section-gap"><RiskNotice /></div>
         </main>
 
         <aside className="dashboard-news-rail">

@@ -5,7 +5,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { api, formatTime } from '../api/client';
 import PageHeader from '../components/PageHeader';
-import RiskNotice from '../components/RiskNotice';
 import { createIntradayKlineOption, createKlineOption, createSnapshotOption } from '../features/stock-detail/charts/stockCharts';
 import AdviceHistory from '../features/stock-detail/components/AdviceHistory';
 import QuoteOverview from '../features/stock-detail/components/QuoteOverview';
@@ -235,7 +234,6 @@ export default function StockDetail() {
         <Col xs={24} lg={12}><AdviceHistory history={history} /></Col>
       </Row>
 
-      <div className="section-gap"><RiskNotice /></div>
     </>
   );
 }

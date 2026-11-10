@@ -3,7 +3,6 @@ import { Button, Card, Table, message } from 'antd';
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client';
 import PageHeader from '../components/PageHeader';
-import RiskNotice from '../components/RiskNotice';
 import AdviceToolbar from '../features/advice/AdviceToolbar';
 import { adviceColumns } from '../features/advice/adviceColumns';
 import { useBackendEvents } from '../hooks/useBackendEvents';
@@ -54,7 +53,6 @@ export default function Advice() {
         <AdviceToolbar signal={signal} setSignal={setSignal} onApply={() => load(true)} />
         <Table<AdviceType> rowKey="id" loading={loading} columns={adviceColumns} dataSource={items} pagination={{ pageSize: 10 }} />
       </Card>
-      <div className="section-gap"><RiskNotice /></div>
     </>
   );
 }
