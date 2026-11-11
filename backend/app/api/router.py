@@ -19,6 +19,7 @@ from app.schemas import AddWatchRequest, NewsLlmConfigRequest, PaperAccountReque
 from app.services.analysis_service import analyze_stock, analyze_watchlist
 from app.services.event_bus import publish_event, subscribe, unsubscribe
 from app.services.ingest_service import normalize_code, record_collection_job
+from app.services.market_history_lock import HistoryImportBusy, history_import_is_running
 from app.services.news_auto_sync_service import trigger_news_simplification
 from app.services.news_llm_config_service import news_llm_config_dict, save_news_llm_config, validate_news_llm_config_status
 from app.services.paper_trading_service import (
@@ -61,7 +62,7 @@ from app.services.watch_stock_sync_service import enqueue_watch_stock_sync, run_
 
 router = APIRouter(prefix="/api/v1")
 _full_market_history_lock = Lock()
-_missing_daily_kline_lock = Lock()
+_missing_daily_kline_lock = _full_market_history_lock
 
 
 def _paper_account(authorization: str | None = Header(None), db: Session = Depends(get_db)):
@@ -699,7 +700,10 @@ def collect_real_full_market_history(
     limit: int | None = Query(None, ge=1, le=10000),
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
-    return AkshareCollector().collect_full_market_history(db, days=days, batch_size=batch_size, limit=limit)
+    try:
+        return AkshareCollector().collect_full_market_history(db, days=days, batch_size=batch_size, limit=limit)
+    except HistoryImportBusy as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @router.post("/collector/real/full-market-history/start")
@@ -709,7 +713,7 @@ def start_real_full_market_history(
     batch_size: int = Query(30, ge=1, le=200),
     limit: int | None = Query(None, ge=1, le=10000),
 ) -> dict[str, Any]:
-    if not _full_market_history_lock.acquire(blocking=False):
+    if history_import_is_running() or not _full_market_history_lock.acquire(blocking=False):
         return {"status": "already_running", "job_type": "full_market_daily_kline", "days": days, "batch_size": batch_size, "limit": limit}
     background_tasks.add_task(_run_full_market_history_background, days, batch_size, limit)
     publish_event("jobs.updated", {"job_type": "full_market_daily_kline", "status": "started"})
@@ -723,7 +727,10 @@ def collect_real_missing_daily_kline(
     limit: int | None = Query(None, ge=1, le=10000),
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
-    return AkshareCollector().collect_missing_daily_kline(db, days=days, batch_size=batch_size, limit=limit)
+    try:
+        return AkshareCollector().collect_missing_daily_kline(db, days=days, batch_size=batch_size, limit=limit)
+    except HistoryImportBusy as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @router.post("/collector/real/missing-daily-kline/start")
@@ -733,7 +740,7 @@ def start_real_missing_daily_kline(
     batch_size: int = Query(30, ge=1, le=200),
     limit: int | None = Query(None, ge=1, le=10000),
 ) -> dict[str, Any]:
-    if not _missing_daily_kline_lock.acquire(blocking=False):
+    if history_import_is_running() or not _missing_daily_kline_lock.acquire(blocking=False):
         return {"status": "already_running", "job_type": "missing_daily_kline", "days": days, "batch_size": batch_size, "limit": limit}
     background_tasks.add_task(_run_missing_daily_kline_background, days, batch_size, limit)
     publish_event("jobs.updated", {"job_type": "missing_daily_kline", "status": "started"})

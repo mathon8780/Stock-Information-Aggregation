@@ -1,68 +1,95 @@
 import { ReloadOutlined } from '@ant-design/icons';
-import { Button, Card, Empty, Space, Table, Typography, message } from 'antd';
-import { useCallback, useEffect, useState } from 'react';
-import { api, formatTime } from '../api/client';
+import { Button, Card, Input, Pagination, Spin, message } from 'antd';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { api } from '../api/client';
 import PageHeader from '../components/PageHeader';
 import NewsToolbar from '../features/news/NewsToolbar';
-import { newsColumns } from '../features/news/newsColumns';
+import NewsReader from '../features/news/NewsReader';
 import { useBackendEvents } from '../hooks/useBackendEvents';
 import type { NewsItem } from '../types';
 
 export default function News() {
   const [items, setItems] = useState<NewsItem[]>([]);
-  const [scope, setScope] = useState<string | undefined>();
-  const [sentiment, setSentiment] = useState<string | undefined>();
+  const [scope, setScope] = useState<string>();
+  const [sentiment, setSentiment] = useState<string>();
+  const [applied, setApplied] = useState<{ scope?: string; sentiment?: string }>({});
+  const [query, setQuery] = useState('');
+  const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(false);
-
-  const load = useCallback(async (showSpinner = true) => {
-    if (showSpinner) setLoading(true);
-    try {
-      const params = new URLSearchParams({ limit: '100' });
-      if (scope) params.set('scope', scope);
-      if (sentiment) params.set('sentiment', sentiment);
-      const response = await api.news(params);
-      setItems(response.items);
-    } catch (error) {
-      if (showSpinner) message.error(error instanceof Error ? error.message : '加载失败');
-    } finally {
-      if (showSpinner) setLoading(false);
-    }
-  }, [scope, sentiment]);
-
-  useEffect(() => { void load(); }, []);
+  const generation = useRef(0);
+  const load = useCallback(
+    async (showSpinner = true) => {
+      const id = ++generation.current;
+      if (showSpinner) setLoading(true);
+      try {
+        const params = new URLSearchParams({ limit: '100' });
+        if (applied.scope) params.set('scope', applied.scope);
+        if (applied.sentiment) params.set('sentiment', applied.sentiment);
+        const result = await api.news(params);
+        if (id === generation.current) {
+          setItems(result.items);
+          setPage(1);
+        }
+      } catch (error) {
+        if (id === generation.current) message.error(error instanceof Error ? error.message : '加载失败');
+      } finally {
+        if (id === generation.current) setLoading(false);
+      }
+    },
+    [applied],
+  );
+  useEffect(() => {
+    void load();
+    return () => {
+      generation.current++;
+    };
+  }, [load]);
   useBackendEvents(['news.updated'], () => load(false));
-
+  const filtered = items.filter((item) =>
+    `${item.title} ${item.original_title || ''} ${item.summary || ''}`.toLowerCase().includes(query.toLowerCase()),
+  );
   return (
     <>
       <PageHeader
-        title="News"
-        description="NewsNow 真实新闻源，配置的 LLM 整理后入库"
-        extra={<Button icon={<ReloadOutlined />} onClick={() => load(true)}>刷新</Button>}
+        title="新闻资讯"
+        description="阅读市场与个股动态，查看来源和摘要整理状态"
+        extra={
+          <Button icon={<ReloadOutlined />} onClick={() => void load()}>
+            刷新
+          </Button>
+        }
       />
-      <Card className="table-card">
-        <NewsToolbar scope={scope} sentiment={sentiment} setScope={setScope} setSentiment={setSentiment} onApply={() => load(true)} />
-        <Table<NewsItem>
-          rowKey="id"
-          loading={loading}
-          dataSource={items}
-          columns={newsColumns}
-          pagination={{ pageSize: 12 }}
-          locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无新闻数据" /> }}
-          expandable={{
-            expandedRowRender: (row) => (
-              <Space direction="vertical" size={8} style={{ maxWidth: 920 }}>
-                <Typography.Text>{row.content || row.summary || (row.simplification_status === 'pending' ? '新闻已保存元数据，等待 LLM 简化。' : row.title)}</Typography.Text>
-                {row.error_message ? <Typography.Text type="danger">{row.error_message}</Typography.Text> : null}
-                <Typography.Text type="secondary">
-                  {row.source} · {formatTime(row.published_at)}
-                  {row.simplified_at ? <> · 简化于 {formatTime(row.simplified_at)}</> : null}
-                  {row.llm_model ? <> · {row.llm_provider}/{row.llm_model}</> : null}
-                  {row.url ? <> · <a href={row.url} target="_blank" rel="noreferrer">原文地址</a></> : null}
-                </Typography.Text>
-              </Space>
-            ),
-          }}
-        />
+      <Card className="data-surface">
+        <div className="reading-toolbar">
+          <NewsToolbar
+            scope={scope}
+            sentiment={sentiment}
+            setScope={setScope}
+            setSentiment={setSentiment}
+            onApply={() => {
+              if (applied.scope === scope && applied.sentiment === sentiment) void load();
+              else setApplied({ scope, sentiment });
+            }}
+          />
+          <Input
+            type="search"
+            aria-label="搜索已读取资讯"
+            placeholder="搜索已读取资讯"
+            value={query}
+            allowClear
+            onChange={(event) => {
+              setQuery(event.target.value);
+              setPage(1);
+            }}
+          />
+        </div>
+        <p className="muted">
+          最近读取 {items.length} 条 · 匹配 {filtered.length} 条
+        </p>
+        <Spin spinning={loading}>
+          <NewsReader items={filtered.slice((page - 1) * 12, page * 12)} />
+        </Spin>
+        <Pagination current={page} pageSize={12} total={filtered.length} showSizeChanger={false} onChange={setPage} />
       </Card>
     </>
   );

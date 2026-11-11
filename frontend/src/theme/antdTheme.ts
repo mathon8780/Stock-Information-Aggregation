@@ -1,117 +1,39 @@
-import { theme as antdThemeAlgorithms, type ThemeConfig } from 'antd';
+import { theme as algorithms, type ThemeConfig } from 'antd';
 import type { ThemeMode } from './ThemeModeContext';
 
-const lightTheme: ThemeConfig = {
-  token: {
-    colorPrimary: '#0f766e',
-    colorInfo: '#2563eb',
-    colorSuccess: '#087f5b',
-    colorWarning: '#b7791f',
-    colorError: '#cf222e',
-    colorBgLayout: '#edf2f5',
-    colorBgContainer: '#ffffff',
-    colorTextBase: '#16232d',
-    colorTextSecondary: '#60707b',
-    colorBorderSecondary: '#d7e0e6',
-    borderRadius: 8,
-    borderRadiusLG: 8,
-    controlHeight: 36,
-    fontFamily: 'Bahnschrift, "Microsoft YaHei UI", "Segoe UI", sans-serif',
-  },
-  components: {
-    Alert: { borderRadiusLG: 8 },
-    Button: {
-      borderRadius: 8,
-      controlHeight: 36,
-      defaultShadow: 'none',
-      primaryShadow: 'none',
-    },
-    Card: {
-      borderRadiusLG: 8,
-      headerBg: '#ffffff',
-      paddingLG: 20,
-    },
-    Layout: {
-      bodyBg: '#edf2f5',
-      headerBg: '#f8fafb',
-      siderBg: '#111c22',
-    },
-    Menu: {
-      darkItemBg: 'transparent',
-      darkItemColor: '#b8c5ca',
-      darkItemHoverBg: '#172932',
-      darkItemHoverColor: '#ffffff',
-      darkItemSelectedBg: '#0f766e',
-      darkItemSelectedColor: '#ffffff',
-      itemBorderRadius: 8,
-    },
-    Table: {
-      borderColor: '#dce5ea',
-      headerBg: '#f4f7f9',
-      headerColor: '#42515c',
-      rowHoverBg: '#f2f8f7',
-    },
-    Tag: { borderRadiusSM: 6 },
-  },
-};
-
-const darkTheme: ThemeConfig = {
-  algorithm: antdThemeAlgorithms.darkAlgorithm,
-  token: {
-    colorPrimary: '#2dd4bf',
-    colorInfo: '#60a5fa',
-    colorSuccess: '#34d399',
-    colorWarning: '#fbbf24',
-    colorError: '#f87171',
-    colorBgLayout: '#020617',
-    colorBgContainer: '#0f172a',
-    colorTextBase: '#e5eef7',
-    colorTextSecondary: '#9fb0bf',
-    colorBorderSecondary: '#243447',
-    borderRadius: 8,
-    borderRadiusLG: 8,
-    controlHeight: 36,
-    fontFamily: 'Bahnschrift, "Microsoft YaHei UI", "Segoe UI", sans-serif',
-  },
-  components: {
-    Alert: { borderRadiusLG: 8 },
-    Button: {
-      borderRadius: 8,
-      controlHeight: 36,
-      defaultShadow: 'none',
-      primaryShadow: 'none',
-    },
-    Card: {
-      borderRadiusLG: 8,
-      headerBg: '#0f172a',
-      paddingLG: 20,
-    },
-    Layout: {
-      bodyBg: '#020617',
-      headerBg: '#0b1220',
-      siderBg: '#08111d',
-    },
-    Menu: {
-      darkItemBg: 'transparent',
-      darkItemColor: '#aab8c5',
-      darkItemHoverBg: '#162235',
-      darkItemHoverColor: '#ffffff',
-      darkItemSelectedBg: '#0f766e',
-      darkItemSelectedColor: '#ffffff',
-      itemBorderRadius: 8,
-    },
-    Table: {
-      borderColor: '#233449',
-      headerBg: '#101b2b',
-      headerColor: '#c8d4df',
-      rowHoverBg: '#132235',
-    },
-    Tag: { borderRadiusSM: 6 },
-  },
-};
-
 export function createAntdTheme(mode: ThemeMode): ThemeConfig {
-  return mode === 'dark' ? darkTheme : lightTheme;
+  const dark = mode === 'dark';
+  const panel = dark ? '#202732' : '#ffffff',
+    raised = dark ? '#272f3c' : '#f5f6f8',
+    line = dark ? '#384150' : '#d9dfe6';
+  return {
+    algorithm: dark ? algorithms.darkAlgorithm : algorithms.defaultAlgorithm,
+    token: {
+      colorPrimary: dark ? '#eac276' : '#876017',
+      colorInfo: dark ? '#9ab9ec' : '#3869a5',
+      colorSuccess: dark ? '#62d9b4' : '#168260',
+      colorWarning: dark ? '#eac276' : '#876017',
+      colorError: dark ? '#ff8f9b' : '#c73e50',
+      colorBgLayout: dark ? '#171c24' : '#f0f2f5',
+      colorBgContainer: panel,
+      colorTextBase: dark ? '#e7eaf0' : '#26313d',
+      colorTextSecondary: dark ? '#a5afbf' : '#65717e',
+      colorBorder: line,
+      colorBorderSecondary: line,
+      borderRadius: 3,
+      borderRadiusLG: 3,
+      controlHeight: 32,
+      fontSize: 13,
+      fontFamily: '"Segoe UI", "Microsoft YaHei", sans-serif',
+    },
+    components: {
+      Button: { defaultShadow: 'none', primaryShadow: 'none' },
+      Card: { headerBg: panel, paddingLG: 16 },
+      Table: { headerBg: raised, rowHoverBg: raised, borderColor: line },
+      Layout: { bodyBg: dark ? '#171c24' : '#f0f2f5', headerBg: panel },
+      Tag: { borderRadiusSM: 3 },
+      Segmented: { itemSelectedBg: dark ? '#4c4230' : '#f3e8d0' },
+    },
+  };
 }
-
-export default lightTheme;
+export default createAntdTheme('light');

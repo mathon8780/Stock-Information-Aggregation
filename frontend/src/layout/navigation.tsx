@@ -1,27 +1,15 @@
-import {
-  AlertOutlined,
-  BarChartOutlined,
-  BellOutlined,
-  DashboardOutlined,
-  FileTextOutlined,
-  FundProjectionScreenOutlined,
-  SettingOutlined,
-} from '@ant-design/icons';
-import type { MenuProps } from 'antd';
-import { Link } from 'react-router-dom';
-
-export const menuItems: MenuProps['items'] = [
-  { key: '/', icon: <DashboardOutlined />, label: <Link to="/">Dashboard</Link> },
-  { key: '/market', icon: <BarChartOutlined />, label: <Link to="/market">Market</Link> },
-  { key: '/news', icon: <FileTextOutlined />, label: <Link to="/news">News</Link> },
-  { key: '/advice', icon: <AlertOutlined />, label: <Link to="/advice">Advice</Link> },
-  { key: '/paper-trading', icon: <FundProjectionScreenOutlined />, label: <Link to="/paper-trading">Transaction</Link> },
-  { key: '/notifications', icon: <BellOutlined />, label: <Link to="/notifications">Notifications</Link> },
-  { key: '/settings', icon: <SettingOutlined />, label: <Link to="/settings">Settings</Link> },
+export const pageNavigation = [
+  { path: '/', label: '工作概览' },
+  { path: '/market', label: '市场行情' },
+  { path: '/news', label: '新闻资讯' },
+  { path: '/advice', label: '策略观察' },
+  { path: '/paper-trading', label: '模拟交易' },
+  { path: '/notifications', label: '通知中心' },
+  { path: '/settings', label: '系统设置' },
 ];
 
 export function selectedMenuKey(pathname: string) {
-  if (menuItems?.some((item) => item?.key === pathname)) return pathname;
+  if (pageNavigation.some((item) => item.path === pathname)) return pathname;
   if (pathname.startsWith('/stock')) return '/market';
   if (pathname.startsWith('/paper-admin')) return '/paper-trading';
   return '/';

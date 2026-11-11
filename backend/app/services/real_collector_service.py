@@ -18,6 +18,8 @@ from app.models import KlineDaily, PaperWatchlist, Stock, Watchlist
 from app.services.analysis_service import analyze_watchlist
 from app.services.event_bus import publish_event
 from app.services.ingest_service import ingest_intraday_kline_payload, ingest_kline_payload, ingest_market_payload, record_collection_job
+from app.services.market_request_guard import install_akshare_request_guard, is_rate_limit_error
+from app.services.market_history_lock import exclusive_history_import
 
 
 DEFAULT_WATCHLIST = [
@@ -59,13 +61,18 @@ class AkshareCollector:
         sleep_fn: Callable[[float], None] = time.sleep,
         request_interval_seconds: float | None = None,
         backoff_seconds: Iterable[float] | None = None,
+        daily_source: str = "auto",
     ):
+        if daily_source not in {"auto", "tencent"}:
+            raise ValueError(f"Unsupported daily source: {daily_source}")
+        self.daily_source = daily_source
         self.ak = ak_module or importlib.import_module("akshare")
         self.sleep = sleep_fn
         self.request_interval_seconds = (
             settings.request_min_interval_seconds if request_interval_seconds is None else request_interval_seconds
         )
         self.backoff_seconds = list(BACKOFF_SECONDS if backoff_seconds is None else backoff_seconds)
+        self.http_throttle = install_akshare_request_guard(max(3, self.request_interval_seconds)) if ak_module is None else None
 
     def bootstrap(self, db: Session, reset: bool = True) -> dict[str, Any]:
         if reset:
@@ -204,6 +211,7 @@ class AkshareCollector:
         summary["failed_items"] = []
         return summary
 
+    @exclusive_history_import
     def collect_full_market_history(
         self,
         db: Session,
@@ -227,6 +235,7 @@ class AkshareCollector:
         }
         batch: list[dict[str, Any]] = []
         batch_targets = 0
+        consecutive_failures = 0
 
         def flush_batch() -> None:
             nonlocal batch, batch_targets
@@ -255,14 +264,21 @@ class AkshareCollector:
                 rows = self._call_with_backoff(lambda t=target: self._history_rows_for_target(t, start, end, prefer_bulk_daily=True), target["code"])
                 batch.extend(rows)
                 batch_targets += 1
-                result["processed"] += 1
+                consecutive_failures = 0
             except Exception as exc:
                 result["failed_items"].append({"code": target["code"], "name": target["name"], "error": str(exc)})
+                consecutive_failures += 1
+                if is_rate_limit_error(exc) or consecutive_failures >= settings.fetch_failure_downgrade_threshold:
+                    result["stop_reason"] = str(exc)
+            result["processed"] += 1
             if batch_targets >= batch_size:
                 flush_batch()
+            if "stop_reason" in result:
+                break
 
         flush_batch()
         result["failed"] = len(result["failed_items"])
+        result["unprocessed"] = len(targets) - result["processed"]
         record_collection_job(
             db,
             "full_market_daily_kline",
@@ -275,6 +291,7 @@ class AkshareCollector:
         db.commit()
         return result
 
+    @exclusive_history_import
     def collect_missing_daily_kline(
         self,
         db: Session,
@@ -298,6 +315,7 @@ class AkshareCollector:
         }
         batch: list[dict[str, Any]] = []
         batch_targets = 0
+        consecutive_failures = 0
 
         def flush_batch() -> None:
             nonlocal batch, batch_targets
@@ -327,17 +345,24 @@ class AkshareCollector:
                 if rows:
                     batch.extend(rows)
                     batch_targets += 1
+                    consecutive_failures = 0
                 else:
                     result["failed_items"].append({"code": target["code"], "name": target["name"], "error": "no daily kline rows returned"})
                 result["processed"] += 1
             except Exception as exc:
                 result["failed_items"].append({"code": target["code"], "name": target["name"], "error": str(exc)})
                 result["processed"] += 1
+                consecutive_failures += 1
+                if is_rate_limit_error(exc) or consecutive_failures >= settings.fetch_failure_downgrade_threshold:
+                    result["stop_reason"] = str(exc)
             if batch_targets >= batch_size:
                 flush_batch()
+            if "stop_reason" in result:
+                break
 
         flush_batch()
         result["failed"] = len(result["failed_items"])
+        result["unprocessed"] = len(targets) - result["processed"]
         record_collection_job(
             db,
             "missing_daily_kline",
@@ -491,7 +516,9 @@ class AkshareCollector:
         source_rows: list[dict[str, Any]]
         try:
             source_rows = _records(self._stock_spot_frame())
-        except Exception:
+        except Exception as exc:
+            if is_rate_limit_error(exc):
+                raise
             if not watch_targets:
                 raise
             source_rows = self._sina_quote_rows_for_targets(watch_targets)
@@ -542,15 +569,21 @@ class AkshareCollector:
             try:
                 return self.ak.stock_zh_a_spot_em()
             except Exception as exc:
+                if is_rate_limit_error(exc):
+                    raise
                 errors.append(f"stock_zh_a_spot_em: {exc}")
         try:
             return self._eastmoney_a_spot_rows()
         except Exception as exc:
+            if is_rate_limit_error(exc):
+                raise
             errors.append(f"eastmoney_a_spot: {exc}")
         if hasattr(self.ak, "stock_zh_a_spot"):
             try:
                 return self.ak.stock_zh_a_spot()
             except Exception as exc:
+                if is_rate_limit_error(exc):
+                    raise
                 errors.append(f"stock_zh_a_spot: {exc}")
         raise RuntimeError("; ".join(errors) or "AKShare stock spot interface is unavailable")
 
@@ -564,6 +597,8 @@ class AkshareCollector:
             try:
                 df = self.ak.stock_zh_index_spot_em(symbol=group)
             except Exception as exc:
+                if is_rate_limit_error(exc):
+                    raise
                 errors.append(f"stock_zh_index_spot_em({group}): {exc}")
                 continue
             for row in _records(df):
@@ -578,6 +613,8 @@ class AkshareCollector:
                     if symbol in wanted:
                         found[symbol] = row
             except Exception as exc:
+                if is_rate_limit_error(exc):
+                    raise
                 errors.append(f"stock_zh_index_spot_sina: {exc}")
         if len(found) < len(wanted):
             try:
@@ -586,6 +623,8 @@ class AkshareCollector:
                     if symbol in wanted:
                         found[symbol] = row
             except Exception as exc:
+                if is_rate_limit_error(exc):
+                    raise
                 errors.append(f"eastmoney_index_spot: {exc}")
         if len(found) < len(wanted):
             try:
@@ -594,6 +633,8 @@ class AkshareCollector:
                     if symbol in wanted:
                         found[symbol] = row
             except Exception as exc:
+                if is_rate_limit_error(exc):
+                    raise
                 errors.append(f"sina_index_spot: {exc}")
 
         items: list[dict[str, Any]] = []
@@ -720,30 +761,27 @@ class AkshareCollector:
         return rows
 
     def _eastmoney_get(self, url: str, params: dict[str, str]) -> dict[str, Any]:
-        session = requests.Session()
-        session.trust_env = False
-        response = session.get(
-            url,
-            params=params,
-            headers={"User-Agent": "Mozilla/5.0"},
-            timeout=15,
-        )
-        response.raise_for_status()
-        return response.json()
+        return self._public_quote_get(url, params=params).json()
+
+    def _public_quote_get(self, url: str, **kwargs: Any) -> Any:
+        with requests.Session() as session:
+            session.trust_env = False
+            kwargs.setdefault("headers", {"User-Agent": "Mozilla/5.0"})
+            kwargs.setdefault("timeout", 15)
+            response = self.http_throttle.call(session.get, url, **kwargs) if self.http_throttle else session.get(url, **kwargs)
+            response.raise_for_status()
+            return response
 
     def _sina_quote_rows_for_targets(self, targets: list[dict[str, str]]) -> list[dict[str, Any]]:
         symbols = [_sina_symbol(target["code"]) for target in targets]
         symbols = [symbol for symbol in symbols if symbol]
         if not symbols:
             return []
-        session = requests.Session()
-        session.trust_env = False
-        response = session.get(
+        response = self._public_quote_get(
             f"{SINA_QUOTE_URL}{','.join(symbols)}",
             headers={"User-Agent": "Mozilla/5.0", "Referer": "https://finance.sina.com.cn"},
             timeout=15,
         )
-        response.raise_for_status()
         text = response.content.decode("gb18030", errors="replace")
         rows: list[dict[str, Any]] = []
         for match in re.finditer(r'var hq_str_(?P<symbol>[a-z]{2}\d{6})="(?P<body>[^"]*)";', text):
@@ -800,25 +838,36 @@ class AkshareCollector:
 
     def _exchange_stock_info_targets(self) -> list[dict[str, str]]:
         sources = [
-            ("stock_info_sh_name_code", "证券代码", "证券简称", "所属行业"),
-            ("stock_info_sz_name_code", "A股代码", "A股简称", "所属行业"),
-            ("stock_info_bj_name_code", "证券代码", "证券简称", "所属行业"),
+            ("stock_info_sh_name_code", {"symbol": "主板A股"}, "证券代码", "证券简称", "所属行业"),
+            ("stock_info_sh_name_code", {"symbol": "科创板"}, "证券代码", "证券简称", "所属行业"),
+            ("stock_info_sz_name_code", {}, "A股代码", "A股简称", "所属行业"),
+            ("stock_info_bj_name_code", {}, "证券代码", "证券简称", "所属行业"),
         ]
         targets: list[dict[str, str]] = []
         seen: set[str] = set()
-        for function_name, code_field, name_field, industry_field in sources:
+        errors: list[str] = []
+        for function_name, kwargs, code_field, name_field, industry_field in sources:
             if not hasattr(self.ak, function_name):
                 continue
             try:
-                df = getattr(self.ak, function_name)()
-            except Exception:
+                df = getattr(self.ak, function_name)(**kwargs)
+                if df.empty:
+                    raise RuntimeError("empty stock list")
+            except Exception as exc:
+                if is_rate_limit_error(exc):
+                    raise
+                errors.append(f"{function_name} {kwargs}: {exc}")
                 continue
+            valid_codes = 0
             for row in _records(df):
                 raw_code = str(_value(row, code_field, "代码", "code") or "").strip()
                 if not raw_code:
                     continue
                 code = normalize_a_code(raw_code)
-                if not _is_a_share_code(code) or code in seen:
+                if not _is_a_share_code(code):
+                    continue
+                valid_codes += 1
+                if code in seen:
                     continue
                 seen.add(code)
                 targets.append(
@@ -830,6 +879,10 @@ class AkshareCollector:
                         "industry": str(_value(row, industry_field, "行业", "板块") or ""),
                     }
                 )
+            if not valid_codes:
+                errors.append(f"{function_name} {kwargs}: no valid A-share codes")
+        if errors:
+            raise RuntimeError("股票名单不完整，停止全市场采集：" + "; ".join(errors))
         return targets
 
     def _spot_stock_targets(self) -> list[dict[str, str]]:
@@ -865,7 +918,7 @@ class AkshareCollector:
             df = self._stock_history_frame(target, symbol, start_text, end_text, prefer_bulk_daily=prefer_bulk_daily)
 
         rows: list[dict[str, Any]] = []
-        for row in _records(df):
+        for row in sorted(_records(df), key=lambda item: str(_value(item, "日期", "date"))):
             trade_date = _as_date(_value(row, "日期", "date"))
             if not trade_date:
                 continue
@@ -886,6 +939,15 @@ class AkshareCollector:
                     "turnover_rate": _turnover_rate(row),
                 }
             )
+        if not rows:
+            raise RuntimeError(f"{target['code']}: no daily kline rows returned in {start}..{end}")
+        if len({row["trade_date"] for row in rows}) != len(rows):
+            raise ValueError(f"{target['code']}: duplicate daily kline dates")
+        for row in rows:
+            if any(row[field] is None or not math.isfinite(row[field]) for field in ("open", "high", "low", "close")):
+                raise ValueError(f"{target['code']}: invalid daily OHLC values on {row['trade_date']}")
+            if row["high"] < max(row["open"], row["close"], row["low"]) or row["low"] > min(row["open"], row["close"]):
+                raise ValueError(f"{target['code']}: inconsistent daily OHLC values on {row['trade_date']}")
         return rows
 
     def _stock_history_frame(self, target: dict[str, str], symbol: str, start_text: str, end_text: str, prefer_bulk_daily: bool = False) -> Any:
@@ -925,15 +987,28 @@ class AkshareCollector:
             )
 
         attempts = (
-            (("stock_zh_a_daily", try_stock_zh_a_daily), ("stock_zh_a_hist_tx", try_stock_zh_a_hist_tx), ("stock_zh_a_hist", try_stock_zh_a_hist))
+            (("stock_zh_a_hist", try_stock_zh_a_hist), ("stock_zh_a_hist_tx", try_stock_zh_a_hist_tx))
             if prefer_bulk_daily
             else (("stock_zh_a_hist", try_stock_zh_a_hist), ("stock_zh_a_daily", try_stock_zh_a_daily), ("stock_zh_a_hist_tx", try_stock_zh_a_hist_tx))
         )
+        if self.daily_source == "tencent":
+            attempts = (("stock_zh_a_hist_tx", try_stock_zh_a_hist_tx),)
 
         for label, attempt in attempts:
+            if not hasattr(self.ak, label):
+                continue
             try:
-                return attempt()
+                frame = attempt()
+                if frame is None or frame.empty:
+                    errors.append(f"{label}: empty daily kline response")
+                    continue
+                if label != "stock_zh_a_hist" and "volume" in frame.columns:
+                    frame = frame.copy()
+                    frame["volume"] = frame["volume"] / 100
+                return frame
             except Exception as exc:
+                if self.daily_source == "tencent" or is_rate_limit_error(exc):
+                    raise
                 errors.append(f"{label}: {exc}")
         raise RuntimeError("; ".join(errors) or "AKShare stock history interface is unavailable")
 
@@ -944,6 +1019,8 @@ class AkshareCollector:
             try:
                 return self.ak.index_zh_a_hist(symbol=symbol, period="daily", start_date=start_text, end_date=end_text)
             except Exception as exc:
+                if is_rate_limit_error(exc):
+                    raise
                 errors.append(f"index_zh_a_hist: {exc}")
 
         market_symbol = f"{'sh' if target['code'].endswith('.SH') else 'sz'}{symbol}"
@@ -953,6 +1030,8 @@ class AkshareCollector:
             try:
                 return getattr(self.ak, function_name)(symbol=market_symbol)
             except Exception as exc:
+                if is_rate_limit_error(exc):
+                    raise
                 errors.append(f"{function_name}: {exc}")
         raise RuntimeError("; ".join(errors) or "AKShare index history interface is unavailable")
 
@@ -1011,12 +1090,16 @@ class AkshareCollector:
                     adjust="",
                 )
             except Exception as exc:
+                if is_rate_limit_error(exc):
+                    raise
                 errors.append(f"stock_zh_a_hist_min_em: {exc}")
         if hasattr(self.ak, "stock_zh_a_minute"):
             market_symbol = f"{'sh' if symbol.startswith(('600', '601', '603', '605', '688', '689')) else 'sz'}{symbol}"
             try:
                 return self.ak.stock_zh_a_minute(symbol=market_symbol, period=str(period_minutes), adjust="")
             except Exception as exc:
+                if is_rate_limit_error(exc):
+                    raise
                 errors.append(f"stock_zh_a_minute: {exc}")
         raise RuntimeError("; ".join(errors) or "AKShare intraday interface is unavailable")
 
@@ -1027,6 +1110,8 @@ class AkshareCollector:
                 return func()
             except Exception as exc:
                 last_error = exc
+                if is_rate_limit_error(exc):
+                    raise
                 if attempt < len(self.backoff_seconds):
                     self.sleep(self.backoff_seconds[attempt])
         raise RuntimeError(f"{label} failed after retries: {last_error}") from last_error
@@ -1251,7 +1336,7 @@ def _turnover_rate(row: dict[str, Any]) -> float | None:
     if value is not None:
         return value
     value = _float(row, "turnover")
-    if value is not None and 0 < value <= 1:
+    if value is not None:
         return value * 100
     return value
 

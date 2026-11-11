@@ -1,5 +1,7 @@
 import type { Advice, CollectionJob, CollectorStartResult, IntradayKline, Kline, NewsItem, NewsLlmConfig, NewsLlmConfigPayload, NewsLlmKeyStatus, NotificationItem, Paged, PaperAccount, PaperAccountCaptcha, PaperAdminOverview, PaperAdminSession, PaperCashFlow, PaperEquityPoint, PaperOrder, PaperPerformanceCalendarDay, PaperPerformanceSummary, PaperPosition, PaperQuote, PaperStockPerformance, PaperSummary, PaperTrade, PaperWatchItem, Snapshot, Stock, WatchItem } from '../types';
 
+import type { BoardKind, BoardResult, MarketBoard } from '../types';
+
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000/api/v1';
 
 export class ApiError extends Error {
@@ -34,6 +36,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  boards: (kind: BoardKind = 'industry') => request<BoardResult<MarketBoard>>(`/market/boards?kind=${kind}`),
+  boardConstituents: (code: string, page = 1, sortOrder = 'desc') => request<BoardResult<Snapshot>>(`/market/boards/${encodeURIComponent(code)}/constituents?page=${page}&page_size=20&sort_order=${sortOrder}`),
   settings: () => request<Record<string, any>>('/settings'),
   newsLlmConfig: () => request<NewsLlmConfig>('/news-llm-config'),
   updateNewsLlmConfig: (payload: NewsLlmConfigPayload) => request<NewsLlmConfig>('/news-llm-config', { method: 'PUT', body: JSON.stringify(payload) }),

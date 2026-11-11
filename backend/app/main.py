@@ -6,6 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.router import router
+from app.api.market_boards import router as market_boards_router
 from app.config import settings
 from app.database import init_db
 from app.services.news_auto_sync_service import start_news_auto_sync, stop_news_auto_sync
@@ -28,6 +29,7 @@ app = FastAPI(title="Market Agent API", description="Local A-share market monito
 
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 app.include_router(router)
+app.include_router(market_boards_router)
 
 
 @app.get("/")

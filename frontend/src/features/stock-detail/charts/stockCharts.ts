@@ -19,8 +19,8 @@ export function createIntradayKlineOption(kline: IntradayKline[], themeMode: The
 
 function chartPalette(themeMode: ThemeMode) {
   return themeMode === 'dark'
-    ? { text: '#c7d2de', axis: '#33465f', split: '#1d2b3d', background: '#0f172a', area: 'rgba(45, 212, 191, 0.16)' }
-    : { text: '#60707b', axis: '#cbd8df', split: '#e7eef2', background: '#ffffff', area: 'rgba(15, 118, 110, 0.12)' };
+    ? { text: '#a5afbf', axis: '#384150', split: '#384150', background: 'transparent', area: 'rgba(234, 194, 118, 0.12)' }
+    : { text: '#65717e', axis: '#d9dfe6', split: '#e7ebef', background: 'transparent', area: 'rgba(135, 96, 23, 0.10)' };
 }
 
 const signalStrength: Record<Signal, number> = {
@@ -84,7 +84,7 @@ function createCandlestickOption(labels: string[], candle: number[][], closes: n
     yAxis: { scale: true, axisLabel: { color: palette.text }, splitLine: { lineStyle: { color: palette.split } } },
     dataZoom: [{ type: 'inside' }, { type: 'slider', height: 18, bottom: 8 }],
     series: [
-      { name: 'K线', type: 'candlestick', data: candle },
+      { name: 'K线', type: 'candlestick', data: candle, itemStyle: { color: themeMode === 'dark' ? '#ff8f9b' : '#c73e50', color0: themeMode === 'dark' ? '#62d9b4' : '#168260', borderColor: themeMode === 'dark' ? '#ff8f9b' : '#c73e50', borderColor0: themeMode === 'dark' ? '#62d9b4' : '#168260' } },
       { name: 'MA5', type: 'line', data: ma(5), smooth: true, symbol: 'none' },
       { name: 'MA20', type: 'line', data: ma(20), smooth: true, symbol: 'none' },
       { name: 'MA60', type: 'line', data: ma(60), smooth: true, symbol: 'none' },

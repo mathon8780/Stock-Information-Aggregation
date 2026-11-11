@@ -27,7 +27,7 @@ from app.models import (
     PaperWatchlist,
     Stock,
 )
-from app.services import paper_trading_service as paper_service
+from app.services import paper_trading_service as paper_service, watch_stock_sync_service
 
 
 TRADING_TIME = datetime(2026, 7, 3, 6, 30, tzinfo=timezone.utc)
@@ -38,6 +38,11 @@ NEXT_TRADING_DAY = datetime(2026, 7, 6, 1, 45, tzinfo=timezone.utc)
 @pytest.fixture(autouse=True)
 def paper_clock(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(paper_service, "_now", lambda: TRADING_TIME)
+    # 模拟交易测试使用本地行情夹具，不应因添加自选股访问真实数据源。
+    monkeypatch.setattr(watch_stock_sync_service, "sync_watch_stock_data", lambda code: {
+        "market_snapshot": {"status": "success", "result": {}},
+        "daily_kline": {"status": "success", "result": {}},
+    })
 
 
 def reset_database() -> None:

@@ -85,3 +85,7 @@ export interface PaperAdminTotals { account_count: number; initial_cash: number;
 export interface PaperAdminOverview { admin: { username: string }; accounts: PaperAdminAccountSummary[]; totals: PaperAdminTotals; flows: Paged<PaperAdminCashFlow>; flow_types: string[]; }
 export interface PaperPerformanceCalendarDay { trade_date: string; realized_pnl: number; buy_amount: number; sell_amount: number; fee_total: number; trade_count: number; order_count: number; cash_flow_count: number; trades: PaperTrade[]; orders: PaperOrder[]; cash_flows: PaperCashFlow[]; }
 export interface Paged<T> { items: T[]; total: number; page?: number; page_size?: number; }
+
+export type BoardKind = 'industry' | 'concept';
+export interface MarketBoard { code: string; name: string; kind: BoardKind; price: number | null; change_pct: number | null; amount: number | null; up_count: number | null; down_count: number | null; quote_time: string | null; }
+export interface BoardResult<T> extends Paged<T> { source: string; fetched_at: string | null; stale: boolean; error: string | null; scope?: string; }

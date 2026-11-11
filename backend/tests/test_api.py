@@ -23,6 +23,7 @@ from app.services.event_bus import publish_event, subscribe, unsubscribe
 from app.services.news_collector_service import NewsCollector, OpenAICompatibleNewsFormatter
 from app.services.push_message_service import render_notification_markdown
 from app.services.real_collector_service import AkshareCollector
+from app.services.market_history_lock import history_import_lock
 
 
 class FakeAkshare:
@@ -56,7 +57,7 @@ class FakeAkshare:
 
 
 class FakeInfoAkshare:
-    def stock_info_sh_name_code(self):
+    def stock_info_sh_name_code(self, symbol: str = "主板A股"):
         return pd.DataFrame([{"证券代码": "600000", "证券简称": "浦发银行"}])
 
     def stock_info_sz_name_code(self):
@@ -74,10 +75,10 @@ class FakeBulkDailyAkshare(FakeInfoAkshare):
 
     def stock_zh_a_hist(self, symbol: str, period: str, start_date: str, end_date: str, adjust: str):
         self.hist_called = True
-        raise RuntimeError("bulk full-market history should avoid stock_zh_a_hist")
+        return history_frame()
 
     def stock_zh_a_daily(self, symbol: str, start_date: str, end_date: str, adjust: str):
-        return history_frame()
+        raise AssertionError("批量采集不应调用新浪接口")
 
 
 class FakeResolveAkshare(FakeAkshare):
@@ -639,7 +640,7 @@ def test_collect_full_market_history_uses_exchange_code_list_when_spot_is_unavai
         assert bj.json()["total"] == 30
 
 
-def test_collect_full_market_history_prefers_daily_interface_for_bulk_import(monkeypatch):
+def test_collect_full_market_history_prefers_eastmoney_for_bulk_import(monkeypatch):
     fake = FakeBulkDailyAkshare()
     monkeypatch.setattr(api_router, "AkshareCollector", lambda: AkshareCollector(fake, sleep_fn=lambda _: None))
     with TestClient(app) as client:
@@ -649,7 +650,7 @@ def test_collect_full_market_history_prefers_daily_interface_for_bulk_import(mon
         assert body["total_targets"] == 1
         assert body["processed"] == 1
         assert body["failed"] == 0
-        assert fake.hist_called is False
+        assert fake.hist_called is True
 
 
 def test_start_full_market_history_uses_background_entrypoint(monkeypatch):
@@ -666,6 +667,16 @@ def test_start_full_market_history_uses_background_entrypoint(monkeypatch):
         first = client.get("/api/v1/stocks/600000.SH/kline?limit=40")
         assert first.status_code == 200
         assert first.json()["total"] == 30
+
+
+def test_bulk_endpoints_refuse_a_running_cli_import():
+    with TestClient(app) as client, history_import_lock():
+        for endpoint in ("full-market-history", "missing-daily-kline"):
+            response = client.post(f"/api/v1/collector/real/{endpoint}/start")
+            assert response.status_code == 200
+            assert response.json()["status"] == "already_running"
+            response = client.post(f"/api/v1/collector/real/{endpoint}")
+            assert response.status_code == 409
 
 
 def test_start_missing_daily_kline_only_fills_targets_without_daily_kline(monkeypatch):

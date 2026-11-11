@@ -81,7 +81,7 @@ export default function Market() {
   return (
     <>
       <PageHeader
-        title="Market"
+        title="市场行情"
         description="全市场行情快照、筛选和自选股管理"
         extra={<Button icon={<ReloadOutlined />} onClick={() => load(page, true)}>刷新</Button>}
       />

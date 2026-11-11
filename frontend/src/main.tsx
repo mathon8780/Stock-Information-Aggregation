@@ -4,13 +4,14 @@ import { ConfigProvider } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
 import 'antd/dist/reset.css';
 import './styles.css';
+import './quant.css';
 import App from './App';
 import { createAntdTheme } from './theme/antdTheme';
 import { THEME_MODE_STORAGE_KEY, ThemeModeContext, type ThemeMode } from './theme/ThemeModeContext';
 
 function readInitialThemeMode(): ThemeMode {
   const stored = localStorage.getItem(THEME_MODE_STORAGE_KEY);
-  return stored === 'dark' ? 'dark' : 'light';
+  return stored === 'light' ? 'light' : 'dark';
 }
 
 function MarketAgentRoot() {

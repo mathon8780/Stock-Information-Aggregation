@@ -1,5 +1,5 @@
 import { ReloadOutlined } from '@ant-design/icons';
-import { Button, Card, Table, message } from 'antd';
+import { Alert, Button, Card, Table, message } from 'antd';
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client';
 import PageHeader from '../components/PageHeader';
@@ -122,10 +122,11 @@ export default function Settings() {
   return (
     <>
       <PageHeader
-        title="Settings"
+        title="系统设置"
         description="真实行情数据源、PostgreSQL 运行状态、采集风控和任务状态"
         extra={<Button icon={<ReloadOutlined />} onClick={() => load(true)}>刷新</Button>}
       />
+      <Alert className="section-gap" type="info" showIcon message="通用参数仅保存在当前浏览器，不改变后端采集与分析任务。新闻 LLM 配置会保存到后端并生效。" />
       <SettingsCards settings={settings} />
       <NewsLlmConfigCard
         config={newsLlmConfig}
@@ -137,7 +138,7 @@ export default function Settings() {
       />
       <TaskActions loading={loading} runTask={runTask} />
       <Card title="任务记录" className="table-card section-gap">
-        <Table<CollectionJob> rowKey="id" loading={loading} dataSource={jobs} columns={jobColumns} pagination={{ pageSize: 8 }} />
+        <Table<CollectionJob> rowKey="id" loading={loading} dataSource={jobs} columns={jobColumns} scroll={{ x: 800 }} pagination={{ pageSize: 8 }} />
       </Card>
     </>
   );

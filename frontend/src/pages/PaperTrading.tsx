@@ -860,7 +860,7 @@ export default function PaperTrading() {
   if (!token || !summary) {
     return (
       <>
-        <PageHeader title="Transaction" description="模拟交易账户与管理员视图统一入口" />
+        <PageHeader title="模拟交易" description="模拟交易账户与管理员视图统一入口" />
         <Row gutter={[18, 18]} className="paper-auth-grid">
           <Col xs={24} lg={8} className="paper-auth-intro-col">
             <Card className="paper-auth-intro" bordered={false}>

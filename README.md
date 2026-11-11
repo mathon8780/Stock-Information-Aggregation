@@ -203,11 +203,27 @@ Invoke-RestMethod -Method Post "http://127.0.0.1:8000/api/v1/collector/real/news
 - `POST /collector/real/news?limit=30`：采集新闻并按配置尝试简化。
 - `POST /news/simplify-pending?limit=50`：处理历史 `pending` 或 `failed` 新闻。
 
-全市场日 K 也可以用脚本导入：
+全市场日 K 建议用以下脚本导入，默认采集近 365 个自然日的前复权数据：
 
 ```powershell
-.\.venv\Scripts\python .\tools\import_full_market_history.py --days 365 --workers 4 --skip-existing
+.\.venv\Scripts\python .\tools\import_full_market_history.py --days 365
+
+# 使用已有名单断点，仅从腾讯续采，首次异常即停止
+.\.venv\Scripts\python .\tools\import_full_market_history.py --source tencent --stop-on-error --interval 10
+
+# 查询本地进度，不访问数据源
+.\.venv\Scripts\python .\tools\import_full_market_history.py --status
 ```
+
+脚本获取沪市主板、科创板、深市及北交所当前上市 A 股名单；名单任一来源失败时停止，不把部分名单当成全市场。范围不包含已退市股票；上市不足一年或停牌的股票按实际返回的交易日保存，空响应记为失败。
+
+采集使用 AKShare 1.20.37+ 的统一 HTTP 入口：同一进程内串行请求，脚本默认在每次请求完成后等待 5–8 秒，每 50 次请求至少暂停 60 秒，含接口内部的分页与重试。普通失败按 60、180 秒退避；识别到限流、HTTP 403/412/429 或东财风控断连时立即停止，不切换接口继续请求。连续 3 只失败也停止，断点保存 45 分钟的最早重试时间。该频率是保守配置，**不保证免于风控**；AKShare 的[官方行情文档](https://akshare.akfamily.xyz/data/stock/stock_quote.html)提示新浪日线多次获取容易封禁 IP，因此批量采集优先东财，普通接口故障时才尝试腾讯。
+
+每只股票成功入库后原子写入 `data/runtime/full_market_history.json`；重新执行同一命令会沿用原日期区间和名单，仅跳过已提交且数据库行数、首尾日期仍匹配的股票。不会凭“已有 180 条”判断一年数据完整。`--limit 3` 可先采集 3 只，之后去掉限制继续；`--interval 10` 可进一步降速。切换日期区间或数据库时，使用新的 `--state data/runtime/另一文件名.json`。脚本只允许串行请求，按股票提交，不提供未提交批量缓存或按固定行数跳过选项。
+
+`--source tencent` 只请求腾讯日线，必须复用已有股票名单断点，不会访问其他来源获取名单或补取行情；入库来源标记为 `akshare_tencent`。切换来源保留原故障和对应冷却时间，已完成股票继续跳过。`--stop-on-error` 遇到第一次连接、响应或数据校验异常即停止，保存股票代码和错误类型，不退避重试，也不自动恢复；状态通过 `--status`、日志和采集任务记录查看。
+
+CLI、全市场 API 和缺失日线 API 共用跨进程任务锁；请求限速器与风控冷却是进程内共享的。采集期间应避免另启独立行情进程叠加访问频率。日线成交量统一保存为“手”，成交额为“元”，换手率为百分比；腾讯/新浪返回的“股”和比例值在入库前转换。前复权历史价格会随除权除息变化，新日期区间应重新采集整段历史。
 
 ## 后端 API 概览
 
