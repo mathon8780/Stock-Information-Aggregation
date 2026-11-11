@@ -43,7 +43,6 @@ frontend/dist/
 .env.*
 .env.local
 !.env.example
-!.env.docker.example
 
 # Local-only content
 .planning/
